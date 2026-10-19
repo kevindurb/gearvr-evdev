@@ -1,0 +1,10 @@
+# Give the logged-in user access to both virtual input nodes.
+#
+# The gamepad node is normally tagged uaccess automatically because udev sees
+# ID_INPUT_JOYSTICK=1. The motion node has only ABS axes and
+# INPUT_PROP_ACCELEROMETER, so it needs an explicit rule. Match the pid.codes
+# test VID and our two product IDs rather than the device name; this survives
+# renaming the nodes.
+SUBSYSTEM=="input", KERNEL=="event[0-9]*", ATTRS{id/vendor}=="1209", ATTRS{id/product}=="0001", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="event[0-9]*", ATTRS{id/vendor}=="1209", ATTRS{id/product}=="0002", TAG+="uaccess"
+SUBSYSTEM=="input", KERNEL=="js[0-9]*", ATTRS{id/vendor}=="1209", ATTRS{id/product}=="0001", TAG+="uaccess"

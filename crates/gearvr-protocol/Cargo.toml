@@ -1,0 +1,18 @@
+[package]
+name = "gearvr-protocol"
+description = "Pure, no-I/O parser for the Samsung Gear VR Controller (ET-YO324) BLE protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[features]
+default = ["std"]
+std = []
+testing = ["std"]

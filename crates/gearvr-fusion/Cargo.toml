@@ -1,0 +1,13 @@
+[package]
+name = "gearvr-fusion"
+description = "AHRS and bias estimation for the Gear VR Controller"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+glam.workspace = true
+gearvr-protocol = { path = "../gearvr-protocol" }
+gearvr-core = { path = "../gearvr-core" }

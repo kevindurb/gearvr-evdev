@@ -14,9 +14,34 @@ No kernel module, no patched kernel, no vendor SDK.
 
 ## Status
 
-**Pre-implementation.** This repository currently holds the research and design
-documentation. See [`docs/DESIGN.md`](docs/DESIGN.md) for the intended
-architecture and milestones.
+**Working skeleton, validated without the physical controller.** The protocol
+parser, 6-DOF fusion, command sequencer, evdev/JSON/UDP outputs, and CLI are
+implemented. On a Steam Deck, a synthetic uinput gamepad was enumerated by udev,
+read by `evtest`/`jstest`, and accepted by Steam Input as a generic controller.
+
+The live BlueZ transport (`scan`, `doctor`, `run`) is implemented but has not
+been exercised against a real ET-YO324 yet. The controller is required to settle
+the axis convention, pairing/reconnect behavior, and actual handshake timing.
+
+See [`docs/implementation.md`](docs/implementation.md) for what is built and
+what the Deck validation actually showed, and
+[`packaging/README.md`](packaging/README.md) for udev, pairing, and the systemd
+user unit.
+
+## Quick start
+
+```sh
+cargo test --workspace
+cargo run -p gearvr-cli -- synth --duration 20 --backend evdev --motion
+cargo run -p gearvr-cli -- decode --hex '0800'
+cargo run -p gearvr-cli -- doctor
+cargo run -p gearvr-cli -- scan --seconds 6
+cargo run -p gearvr-cli -- run 'Gear VR'
+```
+
+`synth` is hardware-free. `run` expects a controller already paired in BlueZ
+(or `--pair`, which needs a working pairing agent). The JSON backend writes one
+object per packet to stdout; logs go to stderr.
 
 ## Documentation
 
@@ -32,6 +57,7 @@ Start at [`docs/index.md`](docs/index.md).
 | [`docs/open-questions.md`](docs/open-questions.md) | Undecoded calibration blob, axis conventions, conflicting claims |
 | [`docs/references.md`](docs/references.md) | Source list |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | What this project will build and how |
+| [`docs/implementation.md`](docs/implementation.md) | Current implementation, Deck validation, and remaining gaps |
 
 ## License
 

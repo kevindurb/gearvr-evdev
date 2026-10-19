@@ -1,0 +1,29 @@
+[package]
+name = "gearvr-ble"
+description = "BlueZ connection manager and command sequencer for the Gear VR Controller"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gearvr-core = { path = "../gearvr-core" }
+gearvr-protocol = { path = "../gearvr-protocol" }
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+# The live BlueZ transport is optional so the pure sequencer and its tests can
+# be built on machines without D-Bus development files.
+bluez-async = { version = "0.9", optional = true }
+libdbus-sys = { version = "0.2", features = ["vendored"], optional = true }
+futures = { version = "0.3", optional = true }
+uuid = { version = "1", optional = true }
+
+[features]
+default = []
+bluez = ["dep:bluez-async", "dep:libdbus-sys", "dep:futures", "dep:uuid"]
+
+[dev-dependencies]
+gearvr-protocol = { path = "../gearvr-protocol", features = ["testing"] }

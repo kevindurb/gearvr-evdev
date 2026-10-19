@@ -1,0 +1,24 @@
+[Unit]
+Description=Samsung Gear VR Controller userspace driver
+Documentation=https://github.com/kevindurb/gearvr-evdev
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+# Install gearvr-cli somewhere on PATH, or adjust this to the binary's path.
+ExecStart=%h/.local/bin/gearvr-cli run --backend evdev --motion
+Environment=RUST_LOG=gearvr_cli=info,gearvr_ble=info
+Restart=on-failure
+RestartSec=5s
+StartLimitBurst=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+# /dev/uinput and /dev/uhid must be reachable; udev uaccess handles the ACL.
+DeviceAllow=/dev/uinput rw
+DeviceAllow=/dev/uhid rw
+
+[Install]
+WantedBy=default.target

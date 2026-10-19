@@ -1,0 +1,18 @@
+[package]
+name = "gearvr-core"
+description = "Shared controller state, backend trait, and configuration types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+gearvr-protocol = { path = "../gearvr-protocol" }
+
+[dev-dependencies]
+gearvr-protocol = { path = "../gearvr-protocol", features = ["testing"] }
+serde_json = "1"

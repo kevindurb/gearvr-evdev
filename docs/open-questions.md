@@ -90,6 +90,9 @@ remap and the first is describing the final convention, but the sign flips
 cyclic-ish (Y,X swap plus negation), which is a rotation combined with a
 reflection unless one of the signs is different from what is written.
 
+**Status:** the driver has a configurable axis map (`gearvr-fusion`), but the
+default is still the documented guess. This remains a hardware task.
+
 **Concrete plan:** with the driver running, hold the controller in a known pose
 (flat on the desk, pointing at a wall) and log raw accel. Gravity alone resolves
 Z. Then rotate 90° about each axis to resolve X and Y. This takes 20 minutes and
@@ -116,8 +119,10 @@ Open questions:
 
 Record layouts were characterized on `YO324XXU0AQC1` (and partly `AQD4`). One
 field is the firmware revision expressed as an **ASCII fragment** (`"QC1\0"`) on
-one version and as a **number** (`3425361`) on another. If your driver parses the
-settings record, treat field 12 defensively — it may be opaque.
+one version and as a **number** (`3425361`) on another. The numeric form on AQD4
+is the little-endian bytes `"QD4\0"`, so both can be read as ASCII. The parser
+stores the raw bytes and exposes both `firmware_ascii()` and
+`firmware_numeric()`.
 
 Unknown: whether `AQBG` units (rare firmware) differ further.
 
@@ -156,8 +161,9 @@ Worth a doc and maybe an experiment on a sacrificial unit.
 
 ## 12. Steam Deck specifics
 
-Untested (needs hardware): whether a `uinput` evdev gamepad created by a user
-service is picked up by Steam Input on SteamOS 3.x, whether the udev-259
-regression affects SteamOS, and whether a virtual DualSense is accepted by Steam
-Input on the Deck specifically. All three need to be verified on the actual
-device before committing to an architecture.
+**Partially answered (2026-10-19).** On Bazzite 44 / Fedora 44 with Steam running,
+a synthetic `uinput` gamepad (`1209:0001`) was enumerated, opened by Steam, given
+an SDL mapping, and assigned `configset_controller_generic.vdf`. The udev-259
+generic-pad regression did not reproduce there. Still untested: a user-service
+instance on SteamOS 3.x specifically, and whether a virtual DualSense is
+accepted with gyro. See [`implementation.md`](implementation.md).

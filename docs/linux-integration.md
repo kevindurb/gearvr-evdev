@@ -162,12 +162,26 @@ These are real and current, and they affect the whole plan:
 - `/dev/uinput`: needs write access. Standard approach is a udev rule granting
   `uaccess` or a dedicated group:
   `KERNEL=="uinput", MODE="0660", GROUP="uinput", OPTIONS+="static_node=uinput"`
+- The optional motion node needs an explicit `uaccess` rule. It has only
+  `EV_ABS` and `INPUT_PROP_ACCELEROMETER`, so udev does not classify it as a
+  joystick. The rule **must sort before `71-seat.rules`**; use
+  `packaging/udev/70-gearvr-evdev.rules`, not a `99-` rule. A late rule adds
+  the tag after seat assignment and leaves the node inaccessible.
 - `/dev/uhid`: same idea; needs `SUBSYSTEM=="misc", KERNEL=="uhid"` access.
 - BlueZ: talking to `org.bluez` over the system D-Bus as a normal user is fine;
   *pairing* is easiest via `bluetoothctl` or an agent registered by the daemon.
   A driver that can pair itself needs a `org.bluez.Agent1` implementation.
 - Consider a systemd **user** service so the driver starts on login and restarts
   after the controller sleeps.
+
+## What was measured on this target
+
+On Bazzite 44 with the synthetic evdev backend, Steam logged the generic
+`1209:0001` pad, generated an SDL mapping, and loaded
+`configset_controller_generic.vdf`. The worst-case Caveat 2 (Steam enumerates
+but never opens a generic evdev pad) did not reproduce on this build. Caveat 1
+is unchanged: the generic pad has no gyro, so Steam-side gyro still needs the
+`uhid` DualSense route. Details are in [`implementation.md`](implementation.md).
 
 ## Rust crate choices
 
