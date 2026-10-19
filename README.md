@@ -1,6 +1,6 @@
 # gearvr-evdev
 
-A Linux userspace driver for the **Samsung Gear VR Controller (ET-YO324 / SM-GEARVR)**, written in Rust.
+A Linux userspace driver for the **Samsung Gear VR Controller (ET-YO324, sold with the SM-R324 headset)**, written in Rust.
 
 The controller is a 2017-era 3-DOF BLE motion remote that speaks a custom GATT
 protocol rather than HID. This project reads that protocol and exposes the
