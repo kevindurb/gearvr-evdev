@@ -43,6 +43,21 @@ cargo run -p gearvr-cli -- run 'Gear VR'
 (or `--pair`, which needs a working pairing agent). The JSON backend writes one
 object per packet to stdout; logs go to stderr.
 
+## Spec-driven development
+
+This repository uses [OpenSpec](https://openspec.dev). Project rules live in
+`openspec/config.yaml`; planned work lives under `openspec/changes/` and merges
+into `openspec/specs/` when archived. The OpenCode integration is committed in
+`.opencode/`.
+
+```sh
+/opsx-propose "add a feature"   # in OpenCode: create a change with proposal, specs, design, tasks
+/opsx-apply                     # implement the current change
+/opsx-archive                   # merge the change into the main specs
+openspec list                   # CLI view of active changes
+openspec validate --all         # validate specs and changes
+```
+
 ## Documentation
 
 Start at [`docs/index.md`](docs/index.md).

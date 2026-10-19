@@ -1,0 +1,53 @@
+schema: spec-driven
+
+# Project context: facts that should shape every artifact and workflow run.
+context: |
+  Project: a clean-room, MIT-licensed Rust userspace driver for the Samsung
+  Gear VR Controller (ET-YO324), a BLE device with a vendor GATT service rather
+  than HID. Target Linux, especially Steam Deck / SteamOS and Bazzite.
+
+  Constraints:
+  - No kernel module. The driver consumes BlueZ/D-Bus GATT and presents input
+    through uinput/evdev first; a uhid DualSense prototype is deferred.
+  - `gearvr-protocol` stays pure: no I/O, no async runtime, `no_std`-capable
+    outside tests. `gearvr-core` owns controller state and the Backend trait.
+  - Commands and state machines must be testable without hardware using
+    synthetic packets, fake transports, and fixtures.
+  - The protocol handshake is strict: write `0800`, wait for the `08 00`
+    acknowledgement (up to ~3 s), then write `0100`. Never send both back to
+    back. Preserve the parser's fixes for variable sample counts, the suffix
+    offset, touchpad packing, and 13-bit vs 16-bit fields.
+  - `docs/` is the research source of truth; `docs/implementation.md` records
+    what is built and what has actually been validated on a Deck.
+
+  Engineering:
+  - Rust workspace with crates gearvr-protocol, gearvr-core, gearvr-fusion,
+    gearvr-ble, gearvr-output, and gearvr-cli.
+  - Before considering work complete: `cargo fmt --all --check`,
+    `cargo test --workspace --all-features`, and
+    `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
+  - Do not claim hardware validation without the physical controller. Mark
+    hardware-dependent tasks explicitly and leave them unchecked until tested.
+
+rules:
+  proposal:
+    - State clearly whether the change is hardware-free or requires the controller.
+    - Include a short non-goals section when the scope could drift into kernel or uhid work.
+  specs:
+    - Describe observable driver behavior, packet semantics, and failure modes; keep crate names and implementation details out of requirements.
+    - Include scenarios for malformed/truncated packets, zero-sample packets, and disconnect or timeout paths where relevant.
+  design:
+    - Respect the crate boundaries above and keep `gearvr-protocol` I/O-free.
+    - Call out any new protocol assumption and how it will be tested without hardware.
+  tasks:
+    - Every task group that changes Rust code includes fmt, test, and clippy verification.
+    - Mark hardware-dependent tasks separately and leave them unchecked until validated.
+
+operations:
+  apply:
+    guidance:
+      - Keep the fake-transport and synthetic-packet test paths working; do not make tests depend on a controller or a live BlueZ adapter.
+      - Update docs/implementation.md when validation status changes.
+  archive:
+    guidance:
+      - Summarize which behavior shipped and which claims remain hardware-unvalidated.
