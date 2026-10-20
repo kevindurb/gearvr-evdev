@@ -14,8 +14,6 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 #[cfg(feature = "bluez")]
 use gearvr_ble::bluez::{self, BlueZOptions, BlueZTransport, DeviceSelector};
-#[cfg(feature = "bluez")]
-use gearvr_ble::sequencer::{Event as SeqEvent, Sequencer};
 use gearvr_core::{Backend, ControllerState, ImuSampleState, LinkState, Orientation};
 use gearvr_fusion::Fusion;
 use gearvr_output::{
@@ -23,6 +21,11 @@ use gearvr_output::{
 };
 use gearvr_protocol::{Buttons, Command as ProtoCommand, Packet, TouchState, Touchpad};
 use tracing_subscriber::EnvFilter;
+
+mod supervisor;
+
+#[cfg(feature = "bluez")]
+use supervisor::{BlueZConnector, LiveSession, SessionConfig};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -344,13 +347,13 @@ impl Backend for NullBackend {
     }
 }
 
-const CAPTURE_VERSION: u8 = 1;
+pub(crate) const CAPTURE_VERSION: u8 = 1;
 
 /// One line of a capture file. `t_us` is measured from the start of the CLI
 /// session, before the BLE connection is attempted, so handshake timing can be
 /// read back afterwards.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct CaptureRecord {
+pub(crate) struct CaptureRecord {
     v: u8,
     t_us: u64,
     /// `rx` for a controller notification, `tx` for a command write.
@@ -359,12 +362,12 @@ struct CaptureRecord {
     hex: String,
 }
 
-struct CaptureWriter {
+pub(crate) struct CaptureWriter {
     out: BufWriter<File>,
 }
 
 impl CaptureWriter {
-    fn create(path: &Path) -> Result<Self> {
+    pub(crate) fn create(path: &Path) -> Result<Self> {
         if let Some(parent) = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -379,7 +382,7 @@ impl CaptureWriter {
         })
     }
 
-    fn record(&mut self, elapsed: Duration, dir: &str, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn record(&mut self, elapsed: Duration, dir: &str, bytes: &[u8]) -> Result<()> {
         let record = CaptureRecord {
             v: CAPTURE_VERSION,
             t_us: elapsed.as_micros().min(u64::MAX as u128) as u64,
@@ -699,36 +702,6 @@ fn on_path(name: &str) -> bool {
 }
 
 #[cfg(feature = "bluez")]
-async fn apply_live(
-    transport: &mut BlueZTransport,
-    events: &[SeqEvent],
-    capture: &mut Option<CaptureWriter>,
-    origin: Instant,
-) -> Result<()> {
-    for event in events {
-        match event {
-            SeqEvent::Write(command) => {
-                let bytes = command.to_bytes();
-                transport
-                    .write_command(*command)
-                    .await
-                    .with_context(|| format!("write {command:?}"))?;
-                if let Some(capture) = capture.as_mut() {
-                    capture.record(origin.elapsed(), "tx", &bytes)?;
-                }
-            }
-            SeqEvent::StateChanged(state) => {
-                tracing::info!(state = state.name(), "sequencer state");
-            }
-            SeqEvent::Error(error) => {
-                bail!("sequencer error: {error}");
-            }
-        }
-    }
-    Ok(())
-}
-
-#[cfg(feature = "bluez")]
 async fn capture(args: CaptureArgs) -> Result<()> {
     run(RunArgs {
         device: args.device,
@@ -853,8 +826,6 @@ async fn run(args: RunArgs) -> Result<()> {
         bail!("--scan-timeout must be a finite non-negative number");
     }
 
-    let origin = Instant::now();
-
     let selector = DeviceSelector::parse(&args.device);
     let options = BlueZOptions {
         scan_timeout: Duration::from_secs_f64(args.scan_timeout),
@@ -862,13 +833,8 @@ async fn run(args: RunArgs) -> Result<()> {
         ..Default::default()
     };
     tracing::info!(?selector, "looking for controller");
-    let mut transport = BlueZTransport::connect(selector, options)
-        .await
-        .map_err(|error| anyhow::anyhow!(error))?;
 
-    // Create the file only once the link exists so a failed lookup does not
-    // leave an empty capture behind.
-    let mut capture = args
+    let capture = args
         .capture
         .as_deref()
         .map(CaptureWriter::create)
@@ -877,163 +843,37 @@ async fn run(args: RunArgs) -> Result<()> {
         tracing::info!(path = %path.display(), "recording raw traffic");
     }
 
-    let mut backend = build_backend(&args.output)?;
-    let mut state = ControllerState {
-        link: LinkState::Connecting,
-        ..Default::default()
+    let backend = build_backend(&args.output)?;
+    let connector = BlueZConnector { selector, options };
+    let deadline = if args.duration > 0.0 {
+        Some(Instant::now() + Duration::from_secs_f64(args.duration))
+    } else {
+        None
     };
-    backend.on_connect(&state).context("backend connect")?;
 
-    let start = Instant::now();
-    let mut sequencer = Sequencer::default();
-    let mut fusion = Fusion::default();
-    let mut last_timestamp: Option<u32> = None;
-    let mut last_packet: Option<Duration> = None;
-    let mut seq = 0u64;
-    let mut result: Result<()> = Ok(());
-
-    let events = sequencer.start(Duration::ZERO);
-    if let Err(error) = apply_live(&mut transport, &events, &mut capture, origin).await {
-        result = Err(error);
-    }
-
-    while result.is_ok() {
-        let now = start.elapsed();
-        if args.duration > 0.0 && now.as_secs_f64() >= args.duration {
-            break;
-        }
-
-        let wait = sequencer
-            .next_deadline()
-            .map(|deadline| deadline.saturating_sub(now))
-            .unwrap_or(Duration::from_millis(500));
-
-        tokio::select! {
-            signal = tokio::signal::ctrl_c() => {
-                signal.context("Ctrl-C handler")?;
-                break;
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            if let Ok(mut terminate) = signal(SignalKind::terminate()) {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = terminate.recv() => {}
+                }
+            } else {
+                let _ = tokio::signal::ctrl_c().await;
             }
-            packet = transport.next_packet() => {
-                let bytes = match packet {
-                    Ok(bytes) => bytes,
-                    Err(error) => {
-                        result = Err(anyhow::anyhow!("link error: {error}"));
-                        break;
-                    }
-                };
-                if let Some(capture) = capture.as_mut() {
-                    if let Err(error) = capture.record(origin.elapsed(), "rx", &bytes) {
-                        result = Err(error);
-                        break;
-                    }
-                }
-                let now = start.elapsed();
-                let parsed = gearvr_protocol::parse(&bytes);
-
-                if let Some(sensor) = parsed.as_sensor() {
-                    state.apply_packet(sensor, seq);
-                    seq += 1;
-
-                    if let Some(previous) = last_packet {
-                        let dt = now.saturating_sub(previous).as_secs_f32();
-                        if dt > 0.0 {
-                            let instantaneous = 1.0 / dt;
-                            state.packets_per_second = if state.packets_per_second == 0.0 {
-                                instantaneous
-                            } else {
-                                state.packets_per_second * 0.9 + instantaneous * 0.1
-                            };
-                        }
-                    }
-                    last_packet = Some(now);
-                    state.samples_per_second =
-                        state.packets_per_second * state.samples.len() as f32;
-
-                    for sample in &state.samples {
-                        let dt = last_timestamp
-                            .map(|previous| {
-                                gearvr_protocol::timestamp_delta_us(previous, sample.timestamp_us)
-                                    as f32
-                                    / 1_000_000.0
-                            })
-                            .unwrap_or(1.0 / 204.8);
-                        last_timestamp = Some(sample.timestamp_us);
-                        fusion.update(
-                            glam::Vec3::from_array(sample.accel_mps2),
-                            glam::Vec3::from_array(sample.gyro_rads),
-                            dt,
-                        );
-                    }
-                    let q = fusion.orientation();
-                    state.orientation = Some(Orientation {
-                        quat: [q.w, q.x, q.y, q.z],
-                        euler_rads: fusion.euler_rads(),
-                    });
-                    let bias = fusion.bias();
-                    state.gyro_bias_rads = [bias.x, bias.y, bias.z];
-                } else {
-                    match &parsed {
-                        Packet::Settings(record) => tracing::info!(
-                            imu_ms = record.imu_interval_ms,
-                            mag_ms = record.mag_interval_ms,
-                            firmware = record.firmware_ascii(),
-                            model = record.model_str(),
-                            serial = record.serial_str(),
-                            "settings record"
-                        ),
-                        Packet::Calibration(record) => tracing::info!(
-                            temperature_c = record.temperature_c(),
-                            "calibration record"
-                        ),
-                        Packet::Unknown(raw) => {
-                            tracing::debug!(len = raw.len(), "unknown notification");
-                        }
-                        Packet::Ack(command) => {
-                            tracing::debug!(?command, "command ack");
-                        }
-                        Packet::Sensor(_) => {}
-                    }
-                }
-
-                let events = sequencer.on_packet(parsed, now);
-                if let Err(error) = apply_live(&mut transport, &events, &mut capture, origin).await {
-                    result = Err(error);
-                    break;
-                }
-                if parsed.as_sensor().is_some() {
-                    if let Err(error) = backend.on_state(&state) {
-                        result = Err(error.into());
-                        break;
-                    }
-                }
-            }
-            _ = tokio::time::sleep(wait) => {}
         }
-
-        let events = sequencer.poll(start.elapsed());
-        if let Err(error) = apply_live(&mut transport, &events, &mut capture, origin).await {
-            result = Err(error);
-            break;
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
         }
-        state.link = match sequencer.state() {
-            gearvr_ble::State::Streaming | gearvr_ble::State::StreamingSlow => LinkState::Streaming,
-            gearvr_ble::State::Backoff => LinkState::Backoff,
-            gearvr_ble::State::Idle => LinkState::Disconnected,
-            _ => LinkState::Connecting,
-        };
-    }
+        let _ = shutdown_tx.send(true);
+    });
 
-    let stop_events = sequencer.stop();
-    if let Err(error) = apply_live(&mut transport, &stop_events, &mut capture, origin).await {
-        if result.is_ok() {
-            result = Err(error);
-        }
-    }
-    state.link = LinkState::Disconnected;
-    state.reset_inputs();
-    let _ = backend.on_disconnect(&state);
-    let _ = transport.disconnect().await;
-    result
+    let mut session = LiveSession::new(connector, backend, capture, SessionConfig::default());
+    session.run(shutdown_rx, deadline).await
 }
 
 fn replay(args: ReplayArgs) -> Result<()> {

@@ -13,11 +13,11 @@ current state.
 | `gearvr-fusion` | Implemented | Configurable axis map, stationary gyro-bias estimator, 6-DOF Madgwick. |
 | `gearvr-ble` | Implemented (hardware untested) | Pure command sequencer plus fake transport; feature-gated `bluez-async` transport for scan/connect/notify/write. |
 | `gearvr-output` | Implemented | evdev/uinput gamepad, optional motion node, newline JSON, JSON/UDP. |
-| `gearvr-cli` | Implemented | `synth`, `decode`, `info`, `scan`, `doctor`, `capture`, `probe`, `replay`, and a live `run` loop. |
+| `gearvr-cli` | Implemented | `synth`, `decode`, `info`, `scan`, `doctor`, `capture`, `probe`, `replay`, a reconnecting session supervisor, and a live `run` loop. |
 
-`cargo test --workspace` currently runs 91 tests: 34 protocol unit tests, 1
+`cargo test --workspace` currently runs 93 tests: 34 protocol unit tests, 1
 real-capture fixture test, 4 protocol property tests, 14 fusion, 19 BLE, 8
-output, 4 core, and 7 CLI. `cargo clippy --workspace --all-targets -- -D
+output, 4 core, and 9 CLI. `cargo clippy --workspace --all-targets -- -D
 warnings` is clean.
 
 ## Protocol decisions that differ from the obvious implementation
@@ -171,8 +171,15 @@ Paired/Bonded/Trusted and a battery level in the standard `0x180F` service.
   `a:b0,back:b1,guide:b2,leftstick:b3,leftx:a0,lefty:a1`.
 - **Idle sleep (informal).** The controller dropped the link after roughly 3.5
   minutes without button activity and reconnected on the next wake. This matches
-  the documented inactivity sleep, but ten cycles have not been measured yet
-  (task 8.4).
+  the documented inactivity sleep, but long-duration sleep behavior is still
+  unmeasured.
+- **Reconnect and input release (ten cycles).** Ten forced
+  `bluetoothctl disconnect` cycles each reconnected in about 2 s with a fresh
+  `0800` → echo → `0100` handshake. The capture contains exactly one `0800`, one
+  echo, and one `0100` per session, with no extra retry writes. The virtual nodes
+  stayed `event8`/`event18`. A trigger held across two disconnects emitted
+  `BTN_SOUTH` release at each drop and re-pressed only because the physical
+  button was still held. Backoff resets to 1 s after a session that streamed.
 - **Settings (`05 00`).** 68 bytes: imu 5 ms, mag 10 ms, button mask `0x3f`,
   touch 320×320, firmware `QD4`, model `ET-YO324`, serial `RF7JB2ACG1D`.
 - **Calibration (`03 00`).** 66 bytes. The last two bytes are `2500` = 25.00 °C,
@@ -187,8 +194,10 @@ Paired/Bonded/Trusted and a battery level in the standard `0x180F` service.
 
 - Pairing-agent behavior, bonding persistence, reconnect after sleep, and
   connection-parameter requests are untested.
-- Sleep/wake timing has not been measured over ten cycles, and auto-reconnect
-  after the controller's inactivity sleep has not been exercised repeatedly.
+- Sleep/wake was exercised as ten forced disconnect/reconnect cycles and as one
+  natural inactivity sleep (~3.5 minutes). Multi-hour sleep, wake-button
+  behavior after a long rest, and recovery from a wedged adapter remain
+  untested.
 - Touchpad gestures (swipe/tap) are not synthesized; only raw position and
   click are exposed. The defaults remain off.
 - Magnetometer scale and mounting rotation are still unverified. The `0300`
