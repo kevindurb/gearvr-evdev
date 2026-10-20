@@ -35,7 +35,7 @@ pub use settings::SettingsRecord;
 pub use touchpad::{TouchState, Touchpad};
 
 /// The controller's vendor GATT service UUID, ASCII-decoded as "Oculus Threemote".
-pub const VENDOR_SERVICE_UUID: u128 = 0x4f63_7574_6c73_2054_6872_6565_6d6f_7465;
+pub const VENDOR_SERVICE_UUID: u128 = 0x4f63_756c_7573_2054_6872_6565_6d6f_7465;
 
 /// Notify characteristic: sensor packets, command acknowledgements and record replies.
 pub const DATA_CHARACTERISTIC_UUID: u128 = 0xc8c5_1726_81bc_483b_a052_f7a1_4ea3_d281;
@@ -46,3 +46,16 @@ pub const COMMAND_CHARACTERISTIC_UUID: u128 = 0xc8c5_1726_81bc_483b_a052_f7a1_4e
 /// Battery service / characteristic (`0x180F` / `0x2A19`).
 pub const BATTERY_SERVICE_UUID: u16 = 0x180f;
 pub const BATTERY_LEVEL_CHARACTERISTIC_UUID: u16 = 0x2a19;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The service UUID is the ASCII string "Oculus Threemote". Every byte
+    // matters: a single transposed pair makes BlueZ report the service as
+    // missing, which is exactly what happened on the first physical unit.
+    #[test]
+    fn vendor_service_uuid_spells_oculus_threemote() {
+        assert_eq!(&VENDOR_SERVICE_UUID.to_be_bytes(), b"Oculus Threemote");
+    }
+}
