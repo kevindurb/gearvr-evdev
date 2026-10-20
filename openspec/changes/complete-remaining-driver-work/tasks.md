@@ -15,9 +15,9 @@
 - [ ] 2.2 Add a `pose-test` helper that captures raw accelerometer averages and gyro signs for the documented poses and prints a candidate map; verify synthetic poses produce the expected candidate and the helper never auto-applies it.
 - [ ] 2.3 Apply validated factory calibration in the fusion path and report the active calibration source; verify tests cover valid calibration, rejected calibration, and online-bias fallback.
 - [ ] 2.4 Harden fusion timing for timestamp wrap and long gaps; verify tests produce finite, normalized output for both cases.
-- [ ] 2.5 Add a versioned magnetometer calibration file with hard/soft-iron data, board rotation, and validation metadata; verify load/save, corrupt-file, and version-mismatch tests pass.
-- [ ] 2.6 Add optional MARG fusion that runs only with a validated magnetometer calibration; verify it is disabled by default and that calibrated synthetic field data updates yaw without destabilizing the 6-DOF fallback.
-- [ ] 2.7 Document the frame convention, calibration sources, persistence format, and fallback behavior in `docs/calibration.md`; verify the commands and file example match the implementation.
+- [x] 2.5 Add a versioned magnetometer calibration file with hard/soft-iron data, board rotation, and validation metadata; verify load/save, corrupt-file, and version-mismatch tests pass.
+- [x] 2.6 Add optional MARG fusion that runs only with a validated magnetometer calibration; verify it is disabled by default and that calibrated synthetic field data updates yaw without destabilizing the 6-DOF fallback.
+- [x] 2.7 Document the frame convention, calibration sources, persistence format, and fallback behavior in `docs/calibration.md`; verify the commands and file example match the implementation.
 - [ ] 2.8 Run `cargo fmt --all --check`, `cargo test --workspace --all-features`, and `cargo clippy --workspace --all-targets --all-features -- -D warnings`; verify all pass.
 
 ## 3. Gesture detection and evdev input behavior

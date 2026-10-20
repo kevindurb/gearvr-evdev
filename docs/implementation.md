@@ -15,9 +15,9 @@ current state.
 | `gearvr-output` | Implemented | evdev/uinput gamepad, optional motion node, newline JSON, JSON/UDP, and an opt-in uhid DualSense backend. |
 | `gearvr-cli` | Implemented | `synth`, `decode`, `info`, `scan`, `doctor`, `capture`, `probe`, `replay`, a reconnecting session supervisor, and a live `run` loop. |
 
-`cargo test --workspace` currently runs 114 tests: 34 protocol unit tests, 1
-real-capture fixture test, 4 protocol property tests, 14 fusion, 19 BLE, 27
-output, 4 core, and 11 CLI. `cargo clippy --workspace --all-targets -- -D
+`cargo test --workspace` currently runs 129 tests: 34 protocol unit tests, 1
+real-capture fixture test, 4 protocol property tests, 28 fusion, 19 BLE, 27
+output, 4 core, and 12 CLI. `cargo clippy --workspace --all-targets -- -D
 warnings` is clean.
 
 ## Protocol decisions that differ from the obvious implementation
@@ -249,6 +249,31 @@ Installed `gearvr-cli` at `~/.local/bin/gearvr-cli` and
 Normal sleep/wake disconnects are handled by the supervisor, not by
 `Restart=on-failure`.
 
+## Magnetometer and MARG validation (2026-10-20)
+
+- A 60 s tumble capture away from the desk produced 3062 non-zero samples.
+  The full ellipsoid fit gave hard iron `(2847, -7454, -760)`, semi-axes
+  `(684, 940, 729)`, and residual **0.153**. A first capture next to the desk
+  had a residual of 0.54 and was rejected; that is what the quality gate is for.
+- The profile is saved as TOML with `validated = true`; corrupt, unvalidated,
+  and version-mismatched files are rejected at load time.
+- MARG is opt-in (`--mag-calibration <file> --marg`) and applies a yaw-only
+  correction. With the controller still, pitch and roll stayed flat
+  (range < 0.005 rad over 20 s) and yaw moved about 0.02 rad. Removing `--marg`
+  leaves the 6-DOF path byte-for-byte unchanged.
+- Without a magnetometer sample the profile is inert; the first sample anchors
+  the reference heading.
+
+### Steam identification race
+
+The earlier "PS5 Controller" fallback (no touchpad, no gyro in the layout) was
+not an SDL setting. Steam/hidapi requests the DualSense feature reports
+asynchronously, and the fixed 200 ms pump in `UhidSink::open` could miss them
+when the BLE link connected late. SDL then classified the device as a generic
+PS5 controller without the touchpad/CRC mapping. A dedicated uhid reader thread
+now answers `GET_REPORT` for the device's lifetime; Steam logs
+`DualSense Wireless Controller` with `touchpad:b11` and `crc:5657` reliably.
+
 ## Not yet validated
 
 - Pairing-agent behavior, bonding persistence, reconnect after sleep, and
@@ -259,8 +284,9 @@ Normal sleep/wake disconnects are handled by the supervisor, not by
   untested.
 - Touchpad gestures (swipe/tap) are not synthesized; only raw position and
   click are exposed. The defaults remain off.
-- Magnetometer scale and mounting rotation are still unverified. The `0300`
-  calibration record is captured, but its semantic layout is unresolved.
+- The saved magnetometer profile is unit-specific and came from a marginal
+  capture (residual 0.153). The `0300` calibration record is captured, but its
+  semantic layout is unresolved.
 - Volume up/down bits were not exercised.
 - The virtual DualSense is enumerated by the kernel and Steam, and gyro works
   in a desktop layout. A long-session run and the systemd service remain.

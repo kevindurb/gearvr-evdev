@@ -285,6 +285,7 @@ pub fn fit(samples: &[[f32; 3]], options: FitOptions) -> Result<MagFit, MagCalib
     })
 }
 
+#[allow(clippy::type_complexity)]
 fn fit_ellipsoid(
     samples: &[[f32; 3]],
 ) -> Result<([f32; 3], [f32; 3], [[f32; 3]; 3]), MagCalibrationError> {
@@ -411,6 +412,7 @@ fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
+#[allow(clippy::needless_range_loop)]
 fn solve9(mut matrix: [[f64; 9]; 9], mut target: [f64; 9]) -> Option<[f64; 9]> {
     for column in 0..9 {
         let mut pivot = column;
@@ -477,6 +479,7 @@ fn inverse3(matrix: [[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
 
 /// Jacobi eigenvalue decomposition of a real symmetric 3×3 matrix.
 /// Eigenvectors are returned as the columns of the second result.
+#[allow(clippy::needless_range_loop)]
 fn eigen_sym3(mut matrix: [[f64; 3]; 3]) -> ([f64; 3], [[f64; 3]; 3]) {
     let mut vectors = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     for _ in 0..64 {
@@ -698,8 +701,8 @@ mod tests {
         )
         .unwrap();
 
-        for axis in 0..3 {
-            assert!((result.center[axis] - center[axis]).abs() < 1.0);
+        for (axis, expected) in center.iter().enumerate() {
+            assert!((result.center[axis] - expected).abs() < 1.0);
         }
 
         let magnitudes: Vec<f32> = samples
