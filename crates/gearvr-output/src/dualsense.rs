@@ -212,7 +212,11 @@ pub fn calibration_report() -> [u8; CALIBRATION_LEN] {
 pub fn pairing_report(mac: [u8; 6]) -> [u8; PAIRING_LEN] {
     let mut report = [0u8; PAIRING_LEN];
     report[0] = FEATURE_PAIRING_INFO;
-    report[1..7].copy_from_slice(&mac);
+    // The kernel/udev display reverses these bytes, so store them reversed to
+    // make HID_UNIQ show the MAC in natural order.
+    for (index, byte) in mac.iter().rev().enumerate() {
+        report[1 + index] = *byte;
+    }
     report[7..16].copy_from_slice(&[0x08, 0x25, 0x00, 0x1e, 0x00, 0xee, 0x74, 0xd0, 0xbc]);
     let crc = feature_crc(&report[..PAIRING_LEN - 4]);
     report[PAIRING_LEN - 4..].copy_from_slice(&crc.to_le_bytes());
@@ -500,7 +504,7 @@ mod tests {
 
         let pairing = pairing_report([0x02, 0x47, 0x56, 0x52, 0x00, 0x01]);
         assert_eq!(pairing[0], FEATURE_PAIRING_INFO);
-        assert_eq!(&pairing[1..7], &[0x02, 0x47, 0x56, 0x52, 0x00, 0x01]);
+        assert_eq!(&pairing[1..7], &[0x01, 0x00, 0x52, 0x56, 0x47, 0x02]);
         assert_eq!(
             u32::from_le_bytes(pairing[PAIRING_LEN - 4..].try_into().unwrap()),
             feature_crc(&pairing[..PAIRING_LEN - 4])
