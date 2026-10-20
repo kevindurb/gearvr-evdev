@@ -35,10 +35,11 @@ Android service APK, and several independent reverse-engineering efforts.
 5. [`linux-integration.md`](linux-integration.md) — how to present it to Linux.
 6. [`open-questions.md`](open-questions.md) — what is still unknown.
 7. [`DESIGN.md`](DESIGN.md) — what we are going to build.
-8. [`implementation.md`](implementation.md) — what is built and what was
+8. [`bringup.md`](bringup.md) — first-contact checklist for real hardware.
+9. [`implementation.md`](implementation.md) — what is built and what was
    validated on a Steam Deck.
-9. [`../packaging/README.md`](../packaging/README.md) — udev, pairing, and the
-   systemd user unit.
+10. [`../packaging/README.md`](../packaging/README.md) — udev, pairing, and the
+    systemd user unit.
 
 ## One-paragraph summary
 

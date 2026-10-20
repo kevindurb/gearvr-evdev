@@ -13,10 +13,10 @@ current state.
 | `gearvr-fusion` | Implemented | Configurable axis map, stationary gyro-bias estimator, 6-DOF Madgwick. |
 | `gearvr-ble` | Implemented (hardware untested) | Pure command sequencer plus fake transport; feature-gated `bluez-async` transport for scan/connect/notify/write. |
 | `gearvr-output` | Implemented | evdev/uinput gamepad, optional motion node, newline JSON, JSON/UDP. |
-| `gearvr-cli` | Implemented | `synth`, `decode`, `info`, `scan`, `doctor`, and a live `run` loop. |
+| `gearvr-cli` | Implemented | `synth`, `decode`, `info`, `scan`, `doctor`, `capture`, `probe`, `replay`, and a live `run` loop. |
 
-`cargo test --workspace` currently runs 86 tests: 33 protocol unit tests, 4
-protocol property tests, 14 fusion, 19 BLE, 8 output, 4 core, and 4 CLI.
+`cargo test --workspace` currently runs 89 tests: 33 protocol unit tests, 4
+protocol property tests, 14 fusion, 19 BLE, 8 output, 4 core, and 7 CLI.
 `cargo clippy --workspace --all-targets -- -D warnings` is clean.
 
 ## Protocol decisions that differ from the obvious implementation
@@ -60,6 +60,21 @@ The udev rule is `packaging/udev/70-gearvr-evdev.rules`. The `70-` prefix
 matters: `71-seat.rules` converts the `uaccess` tag into a seat tag, and
 `73-seat-late.rules` applies the ACL. A `99-` rule is too late and leaves the
 motion node unreadable by the logged-in user.
+
+## Raw captures
+
+`capture` and `probe` write JSON Lines, one object per event:
+
+| Field | Meaning |
+| --- | --- |
+| `v` | schema version, currently `1` |
+| `t_us` | microseconds since the CLI started, before the BLE connect |
+| `dir` | `tx` command write, `rx` notification, `read` characteristic read |
+| `hex` | payload bytes, lowercase, no separators |
+
+`replay capture.jsonl --include-tx --summary` decodes a file offline. Records are
+flushed as they are written, so Ctrl-C or a link drop keeps everything up to the
+failure. These files are the input for the protocol fixtures in task 1.1.
 
 ## Steam Deck validation (2026-10-19)
 
@@ -110,8 +125,11 @@ sudo udevadm trigger --subsystem-match=input
 ## Not yet validated
 
 - No physical ET-YO324 is available yet. The `bluez` transport compiles and the
-  `scan`/`doctor` commands run, but connect/notify/write has not been exercised
-  against a controller.
+  `scan`/`doctor`/`capture`/`probe` commands run, but connect/notify/write has
+  not been exercised against a controller. `docs/bringup.md` is the first-contact
+  procedure.
+- The JSONL capture format and `replay` are covered by unit tests, but no real
+  controller traffic has been recorded yet.
 - Pairing-agent behavior, bonding persistence, reconnect after sleep, and
   connection-parameter requests are untested.
 - Axis convention and sign are still not settled; the axis map is configurable,

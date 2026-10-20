@@ -4,8 +4,10 @@
 //! The `synth` command is the hardware-free probe used to validate the virtual
 //! evdev gamepad against Steam Input on a Steam Deck.
 
-use std::io::{self, BufRead};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -19,7 +21,7 @@ use gearvr_fusion::Fusion;
 use gearvr_output::{
     ButtonMap, EvdevBackend, EvdevConfig, JsonBackend, MotionNodeConfig, UdpBackend, UdpConfig,
 };
-use gearvr_protocol::{Buttons, Packet, TouchState, Touchpad};
+use gearvr_protocol::{Buttons, Command as ProtoCommand, Packet, TouchState, Touchpad};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -51,6 +53,14 @@ enum Command {
     /// Check the local uinput/evdev/BlueZ environment.
     #[cfg(feature = "bluez")]
     Doctor,
+    /// Record raw controller traffic without creating an output device.
+    #[cfg(feature = "bluez")]
+    Capture(CaptureArgs),
+    /// Read the data characteristic and send diagnostic commands, recording all replies.
+    #[cfg(feature = "bluez")]
+    Probe(ProbeArgs),
+    /// Replay a capture file written by `run --capture` or `capture`.
+    Replay(ReplayArgs),
     /// Run the live driver against a paired controller.
     #[cfg(feature = "bluez")]
     Run(RunArgs),
@@ -148,8 +158,83 @@ struct RunArgs {
     #[arg(long, default_value_t = 6.0)]
     scan_timeout: f64,
 
+    /// Write every raw notification and command write to a JSONL capture file.
+    #[arg(long, value_name = "PATH")]
+    capture: Option<PathBuf>,
+
     #[command(flatten)]
     output: OutputArgs,
+}
+
+#[cfg(feature = "bluez")]
+#[derive(Debug, Parser)]
+struct CaptureArgs {
+    /// Bluetooth address (AA:BB:CC:DD:EE:FF) or a name substring.
+    #[arg(default_value = "Gear VR")]
+    device: String,
+
+    /// Seconds to record. Use 0 to record until Ctrl-C.
+    #[arg(long, default_value_t = 60.0)]
+    seconds: f64,
+
+    /// Pair if BlueZ says the device is not paired. Needs a working pairing agent.
+    #[arg(long)]
+    pair: bool,
+
+    /// Seconds to scan when the device is not already known to BlueZ.
+    #[arg(long, default_value_t = 6.0)]
+    scan_timeout: f64,
+
+    /// Capture file to write (JSON Lines).
+    #[arg(long, short, default_value = "gearvr-capture.jsonl")]
+    out: PathBuf,
+}
+
+#[cfg(feature = "bluez")]
+#[derive(Debug, Parser)]
+struct ProbeArgs {
+    /// Bluetooth address (AA:BB:CC:DD:EE:FF) or a name substring.
+    #[arg(default_value = "Gear VR")]
+    device: String,
+
+    /// Command IDs to send, in hex, in order. Defaults to `03` (calibration
+    /// record) then `05` (device record).
+    #[arg(long, value_delimiter = ',', default_value = "03,05")]
+    commands: Vec<String>,
+
+    /// Milliseconds to listen after each command.
+    #[arg(long, default_value_t = 2000)]
+    wait_ms: u64,
+
+    /// Pair if BlueZ says the device is not paired. Needs a working pairing agent.
+    #[arg(long)]
+    pair: bool,
+
+    /// Seconds to scan when the device is not already known to BlueZ.
+    #[arg(long, default_value_t = 6.0)]
+    scan_timeout: f64,
+
+    /// Capture file to write (JSON Lines).
+    #[arg(long, short, default_value = "gearvr-probe.jsonl")]
+    out: PathBuf,
+}
+
+#[derive(Debug, Parser)]
+struct ReplayArgs {
+    /// Capture file written by `run --capture` or `capture`.
+    path: PathBuf,
+
+    /// Print compact one-line summaries instead of full packet debug output.
+    #[arg(long)]
+    summary: bool,
+
+    /// Include command writes (tx) as well as notifications (rx).
+    #[arg(long)]
+    include_tx: bool,
+
+    /// Stop after this many records. 0 prints everything.
+    #[arg(long, default_value_t = 0)]
+    limit: usize,
 }
 
 #[derive(Debug, Parser)]
@@ -199,6 +284,11 @@ async fn main() -> Result<()> {
         Command::Scan(args) => scan(args).await,
         #[cfg(feature = "bluez")]
         Command::Doctor => doctor().await,
+        #[cfg(feature = "bluez")]
+        Command::Capture(args) => capture(args).await,
+        #[cfg(feature = "bluez")]
+        Command::Probe(args) => probe(args).await,
+        Command::Replay(args) => replay(args),
         #[cfg(feature = "bluez")]
         Command::Run(args) => run(args).await,
     }
@@ -252,6 +342,66 @@ impl Backend for NullBackend {
     fn on_disconnect(&mut self, _state: &ControllerState) -> Result<(), gearvr_core::BackendError> {
         Ok(())
     }
+}
+
+const CAPTURE_VERSION: u8 = 1;
+
+/// One line of a capture file. `t_us` is measured from the start of the CLI
+/// session, before the BLE connection is attempted, so handshake timing can be
+/// read back afterwards.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct CaptureRecord {
+    v: u8,
+    t_us: u64,
+    /// `rx` for a controller notification, `tx` for a command write.
+    dir: String,
+    /// Payload bytes as lowercase hex without separators.
+    hex: String,
+}
+
+struct CaptureWriter {
+    out: BufWriter<File>,
+}
+
+impl CaptureWriter {
+    fn create(path: &Path) -> Result<Self> {
+        if let Some(parent) = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create capture directory {}", parent.display()))?;
+        }
+        let file = File::create(path)
+            .with_context(|| format!("create capture file {}", path.display()))?;
+        Ok(Self {
+            out: BufWriter::new(file),
+        })
+    }
+
+    fn record(&mut self, elapsed: Duration, dir: &str, bytes: &[u8]) -> Result<()> {
+        let record = CaptureRecord {
+            v: CAPTURE_VERSION,
+            t_us: elapsed.as_micros().min(u64::MAX as u128) as u64,
+            dir: dir.to_string(),
+            hex: hex_string(bytes),
+        };
+        serde_json::to_writer(&mut self.out, &record).context("encode capture record")?;
+        self.out.write_all(b"\n")?;
+        // Flush eagerly: a disconnect or Ctrl-C must not lose the packets that
+        // explain what the controller was doing.
+        self.out.flush().context("flush capture file")?;
+        Ok(())
+    }
+}
+
+fn hex_string(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 fn synth(args: SynthArgs) -> Result<()> {
@@ -491,6 +641,20 @@ async fn doctor() -> Result<()> {
         .unwrap_or(0);
     println!("/dev/input event nodes: {event_count}");
 
+    println!(
+        "gearvr udev rule: {}",
+        if Path::new("/etc/udev/rules.d/70-gearvr-evdev.rules").is_file() {
+            "installed"
+        } else {
+            "missing (install packaging/udev/70-gearvr-evdev.rules)"
+        }
+    );
+    println!(
+        "evtest/jstest:    {}/{}",
+        if on_path("evtest") { "yes" } else { "no" },
+        if on_path("jstest") { "yes" } else { "no" }
+    );
+
     match bluez::list_adapters().await {
         Ok(adapters) => {
             for adapter in adapters {
@@ -528,14 +692,30 @@ fn can_open(path: &str) -> bool {
 }
 
 #[cfg(feature = "bluez")]
-async fn apply_live(transport: &mut BlueZTransport, events: &[SeqEvent]) -> Result<()> {
+fn on_path(name: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| dir.join(name).is_file()))
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "bluez")]
+async fn apply_live(
+    transport: &mut BlueZTransport,
+    events: &[SeqEvent],
+    capture: &mut Option<CaptureWriter>,
+    origin: Instant,
+) -> Result<()> {
     for event in events {
         match event {
             SeqEvent::Write(command) => {
+                let bytes = command.to_bytes();
                 transport
                     .write_command(*command)
                     .await
                     .with_context(|| format!("write {command:?}"))?;
+                if let Some(capture) = capture.as_mut() {
+                    capture.record(origin.elapsed(), "tx", &bytes)?;
+                }
             }
             SeqEvent::StateChanged(state) => {
                 tracing::info!(state = state.name(), "sequencer state");
@@ -549,13 +729,36 @@ async fn apply_live(transport: &mut BlueZTransport, events: &[SeqEvent]) -> Resu
 }
 
 #[cfg(feature = "bluez")]
-async fn run(args: RunArgs) -> Result<()> {
-    if args.duration < 0.0 || !args.duration.is_finite() {
-        bail!("--duration must be a finite non-negative number");
+async fn capture(args: CaptureArgs) -> Result<()> {
+    run(RunArgs {
+        device: args.device,
+        duration: args.seconds,
+        pair: args.pair,
+        scan_timeout: args.scan_timeout,
+        capture: Some(args.out),
+        output: OutputArgs {
+            backend: BackendKind::Null,
+            ..Default::default()
+        },
+    })
+    .await
+}
+
+#[cfg(feature = "bluez")]
+async fn probe(args: ProbeArgs) -> Result<()> {
+    if args.wait_ms == 0 {
+        bail!("--wait-ms must be greater than zero");
     }
     if args.scan_timeout < 0.0 || !args.scan_timeout.is_finite() {
         bail!("--scan-timeout must be a finite non-negative number");
     }
+    let commands = args
+        .commands
+        .iter()
+        .map(|text| parse_command_id(text))
+        .collect::<Result<Vec<u8>>>()?;
+
+    let origin = Instant::now();
 
     let selector = DeviceSelector::parse(&args.device);
     let options = BlueZOptions {
@@ -567,6 +770,112 @@ async fn run(args: RunArgs) -> Result<()> {
     let mut transport = BlueZTransport::connect(selector, options)
         .await
         .map_err(|error| anyhow::anyhow!(error))?;
+
+    let mut capture = CaptureWriter::create(&args.out)?;
+    tracing::info!(path = %args.out.display(), "recording probe traffic");
+
+    // A plain read needs no handshake and often returns the current settings
+    // record. Record it even if the device rejects the read.
+    match transport.read_data().await {
+        Ok(bytes) => {
+            capture.record(origin.elapsed(), "read", &bytes)?;
+            tracing::info!(
+                len = bytes.len(),
+                kind = packet_kind(&gearvr_protocol::parse(&bytes)),
+                "data characteristic read"
+            );
+        }
+        Err(error) => tracing::warn!(%error, "data characteristic read failed"),
+    }
+
+    for id in commands {
+        let command = ProtoCommand::from_bytes([id, 0]);
+        transport
+            .write_command(command)
+            .await
+            .with_context(|| format!("write {command:?}"))?;
+        capture.record(origin.elapsed(), "tx", &command.to_bytes())?;
+        tracing::info!(?command, wait_ms = args.wait_ms, "sent probe command");
+
+        let deadline = Instant::now() + Duration::from_millis(args.wait_ms);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match tokio::time::timeout(remaining, transport.next_packet()).await {
+                // Quiet window elapsed with no notification.
+                Err(_) => break,
+                Ok(Ok(bytes)) => {
+                    capture.record(origin.elapsed(), "rx", &bytes)?;
+                    tracing::info!(
+                        len = bytes.len(),
+                        kind = packet_kind(&gearvr_protocol::parse(&bytes)),
+                        "notification"
+                    );
+                }
+                Ok(Err(error)) => bail!("link error: {error}"),
+            }
+        }
+    }
+
+    let _ = transport.disconnect().await;
+    tracing::info!(path = %args.out.display(), "probe capture written");
+    Ok(())
+}
+
+#[cfg(feature = "bluez")]
+fn packet_kind(packet: &Packet) -> &'static str {
+    match packet {
+        Packet::Ack(_) => "ack",
+        Packet::Sensor(_) => "sensor",
+        Packet::Settings(_) => "settings",
+        Packet::Calibration(_) => "calibration",
+        Packet::Unknown(_) => "unknown",
+    }
+}
+
+fn parse_command_id(text: &str) -> Result<u8> {
+    let clean = text.trim();
+    let clean = clean
+        .strip_prefix("0x")
+        .or_else(|| clean.strip_prefix("0X"))
+        .unwrap_or(clean);
+    u8::from_str_radix(clean, 16).with_context(|| format!("bad command id {text:?}"))
+}
+
+#[cfg(feature = "bluez")]
+async fn run(args: RunArgs) -> Result<()> {
+    if args.duration < 0.0 || !args.duration.is_finite() {
+        bail!("--duration must be a finite non-negative number");
+    }
+    if args.scan_timeout < 0.0 || !args.scan_timeout.is_finite() {
+        bail!("--scan-timeout must be a finite non-negative number");
+    }
+
+    let origin = Instant::now();
+
+    let selector = DeviceSelector::parse(&args.device);
+    let options = BlueZOptions {
+        scan_timeout: Duration::from_secs_f64(args.scan_timeout),
+        pair: args.pair,
+        ..Default::default()
+    };
+    tracing::info!(?selector, "looking for controller");
+    let mut transport = BlueZTransport::connect(selector, options)
+        .await
+        .map_err(|error| anyhow::anyhow!(error))?;
+
+    // Create the file only once the link exists so a failed lookup does not
+    // leave an empty capture behind.
+    let mut capture = args
+        .capture
+        .as_deref()
+        .map(CaptureWriter::create)
+        .transpose()?;
+    if let Some(path) = args.capture.as_deref() {
+        tracing::info!(path = %path.display(), "recording raw traffic");
+    }
 
     let mut backend = build_backend(&args.output)?;
     let mut state = ControllerState {
@@ -584,7 +893,7 @@ async fn run(args: RunArgs) -> Result<()> {
     let mut result: Result<()> = Ok(());
 
     let events = sequencer.start(Duration::ZERO);
-    if let Err(error) = apply_live(&mut transport, &events).await {
+    if let Err(error) = apply_live(&mut transport, &events, &mut capture, origin).await {
         result = Err(error);
     }
 
@@ -612,6 +921,12 @@ async fn run(args: RunArgs) -> Result<()> {
                         break;
                     }
                 };
+                if let Some(capture) = capture.as_mut() {
+                    if let Err(error) = capture.record(origin.elapsed(), "rx", &bytes) {
+                        result = Err(error);
+                        break;
+                    }
+                }
                 let now = start.elapsed();
                 let parsed = gearvr_protocol::parse(&bytes);
 
@@ -681,7 +996,7 @@ async fn run(args: RunArgs) -> Result<()> {
                 }
 
                 let events = sequencer.on_packet(parsed, now);
-                if let Err(error) = apply_live(&mut transport, &events).await {
+                if let Err(error) = apply_live(&mut transport, &events, &mut capture, origin).await {
                     result = Err(error);
                     break;
                 }
@@ -696,7 +1011,7 @@ async fn run(args: RunArgs) -> Result<()> {
         }
 
         let events = sequencer.poll(start.elapsed());
-        if let Err(error) = apply_live(&mut transport, &events).await {
+        if let Err(error) = apply_live(&mut transport, &events, &mut capture, origin).await {
             result = Err(error);
             break;
         }
@@ -709,7 +1024,7 @@ async fn run(args: RunArgs) -> Result<()> {
     }
 
     let stop_events = sequencer.stop();
-    if let Err(error) = apply_live(&mut transport, &stop_events).await {
+    if let Err(error) = apply_live(&mut transport, &stop_events, &mut capture, origin).await {
         if result.is_ok() {
             result = Err(error);
         }
@@ -719,6 +1034,43 @@ async fn run(args: RunArgs) -> Result<()> {
     let _ = backend.on_disconnect(&state);
     let _ = transport.disconnect().await;
     result
+}
+
+fn replay(args: ReplayArgs) -> Result<()> {
+    let file = File::open(&args.path)
+        .with_context(|| format!("open capture file {}", args.path.display()))?;
+    let mut shown = 0usize;
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line = line?;
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let record: CaptureRecord = serde_json::from_str(line).with_context(|| {
+            format!(
+                "{}:{}: invalid capture record",
+                args.path.display(),
+                index + 1
+            )
+        })?;
+        if !args.include_tx && record.dir == "tx" {
+            continue;
+        }
+        if args.limit > 0 && shown >= args.limit {
+            break;
+        }
+        let data = parse_hex(&record.hex)
+            .with_context(|| format!("{}:{}: invalid hex", args.path.display(), index + 1))?;
+        println!(
+            "# t={}us dir={} len={}",
+            record.t_us,
+            record.dir,
+            data.len()
+        );
+        print_packet(&data, args.summary)?;
+        shown += 1;
+    }
+    Ok(())
 }
 
 fn decode(args: DecodeArgs) -> Result<()> {
@@ -847,5 +1199,48 @@ mod tests {
             assert!(touch.x <= 320);
             assert!(touch.y <= 320);
         }
+    }
+
+    #[test]
+    fn hex_string_round_trips() {
+        let bytes = [0x08, 0x00, 0xff, 0x0a];
+        assert_eq!(hex_string(&bytes), "0800ff0a");
+        assert_eq!(parse_hex(&hex_string(&bytes)).unwrap(), bytes);
+    }
+
+    #[test]
+    fn command_ids_parse_with_and_without_prefix() {
+        assert_eq!(parse_command_id("03").unwrap(), 0x03);
+        assert_eq!(parse_command_id("0x05").unwrap(), 0x05);
+        assert_eq!(parse_command_id(" 08 ").unwrap(), 0x08);
+        assert!(parse_command_id("100").is_err());
+        assert!(parse_command_id("zz").is_err());
+    }
+
+    #[test]
+    fn capture_writer_round_trips() {
+        let path =
+            std::env::temp_dir().join(format!("gearvr-capture-test-{}.jsonl", std::process::id()));
+        {
+            let mut writer = CaptureWriter::create(&path).unwrap();
+            writer
+                .record(Duration::from_millis(1), "tx", &[0x08, 0x00])
+                .unwrap();
+            writer
+                .record(Duration::from_micros(1500), "rx", &[0x08, 0x00])
+                .unwrap();
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        let records: Vec<CaptureRecord> = text
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].v, CAPTURE_VERSION);
+        assert_eq!(records[0].dir, "tx");
+        assert_eq!(records[0].hex, "0800");
+        assert_eq!(records[1].t_us, 1500);
     }
 }

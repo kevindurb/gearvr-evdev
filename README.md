@@ -36,12 +36,20 @@ cargo run -p gearvr-cli -- synth --duration 20 --backend evdev --motion
 cargo run -p gearvr-cli -- decode --hex '0800'
 cargo run -p gearvr-cli -- doctor
 cargo run -p gearvr-cli -- scan --seconds 6
+cargo run -p gearvr-cli -- capture 'Gear VR' --seconds 60 -o capture.jsonl
+cargo run -p gearvr-cli -- probe 'Gear VR' --commands 03,05 -o records.jsonl
+cargo run -p gearvr-cli -- replay capture.jsonl --include-tx --summary
 cargo run -p gearvr-cli -- run 'Gear VR'
 ```
 
-`synth` is hardware-free. `run` expects a controller already paired in BlueZ
-(or `--pair`, which needs a working pairing agent). The JSON backend writes one
-object per packet to stdout; logs go to stderr.
+`synth` is hardware-free. `capture` records raw tx/rx traffic without creating
+an input device; `probe` reads the constant settings/calibration records;
+`replay` decodes a capture offline. `run` expects a controller already paired in
+BlueZ (or `--pair`, which needs a working pairing agent). The JSON backend writes
+one object per packet to stdout; logs go to stderr.
+
+Bringing up the physical controller for the first time? Follow
+[`docs/bringup.md`](docs/bringup.md).
 
 ## Spec-driven development
 
@@ -72,6 +80,7 @@ Start at [`docs/index.md`](docs/index.md).
 | [`docs/open-questions.md`](docs/open-questions.md) | Undecoded calibration blob, axis conventions, conflicting claims |
 | [`docs/references.md`](docs/references.md) | Source list |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | What this project will build and how |
+| [`docs/bringup.md`](docs/bringup.md) | First-contact checklist for a physical controller |
 | [`docs/implementation.md`](docs/implementation.md) | Current implementation, Deck validation, and remaining gaps |
 
 ## License
