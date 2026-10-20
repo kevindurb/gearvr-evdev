@@ -79,6 +79,7 @@ Start at [`docs/index.md`](docs/index.md).
 | [`docs/linux-integration.md`](docs/linux-integration.md) | uinput vs uhid vs kernel driver; why there is no in-tree driver |
 | [`docs/open-questions.md`](docs/open-questions.md) | Undecoded calibration blob, axis conventions, conflicting claims |
 | [`docs/references.md`](docs/references.md) | Source list |
+| [`docs/calibration.md`](docs/calibration.md) | Magnetometer capture, fit, and MARG behavior |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | What this project will build and how |
 | [`docs/bringup.md`](docs/bringup.md) | First-contact checklist for a physical controller |
 | [`docs/implementation.md`](docs/implementation.md) | Current implementation, Deck validation, and remaining gaps |

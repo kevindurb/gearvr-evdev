@@ -7,7 +7,9 @@
 pub mod ahrs;
 pub mod axis;
 pub mod bias;
+pub mod mag;
 
 pub use ahrs::{Fusion, FusionConfig};
 pub use axis::{AxisConfig, AxisMap};
 pub use bias::GyroBiasEstimator;
+pub use mag::{fit, FitOptions, MagCalibration, MagCalibrationError, MagFit};

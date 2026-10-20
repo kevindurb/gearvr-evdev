@@ -11,3 +11,6 @@ repository.workspace = true
 glam.workspace = true
 gearvr-protocol = { path = "../gearvr-protocol" }
 gearvr-core = { path = "../gearvr-core" }
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true

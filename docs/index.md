@@ -34,11 +34,12 @@ Android service APK, and several independent reverse-engineering efforts.
 4. [`prior-art.md`](prior-art.md) — who has done this before, and their mistakes.
 5. [`linux-integration.md`](linux-integration.md) — how to present it to Linux.
 6. [`open-questions.md`](open-questions.md) — what is still unknown.
-7. [`DESIGN.md`](DESIGN.md) — what we are going to build.
-8. [`bringup.md`](bringup.md) — first-contact checklist for real hardware.
-9. [`implementation.md`](implementation.md) — what is built and what was
-   validated on a Steam Deck.
-10. [`../packaging/README.md`](../packaging/README.md) — udev, pairing, and the
+7. [`calibration.md`](calibration.md) — magnetometer capture, fit, and MARG.
+8. [`DESIGN.md`](DESIGN.md) — what we are going to build.
+9. [`bringup.md`](bringup.md) — first-contact checklist for real hardware.
+10. [`implementation.md`](implementation.md) — what is built and what was
+    validated on a Steam Deck.
+11. [`../packaging/README.md`](../packaging/README.md) — udev, pairing, and the
     systemd user unit.
 
 ## One-paragraph summary

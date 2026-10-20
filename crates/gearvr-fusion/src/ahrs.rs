@@ -9,6 +9,7 @@ use glam::{Quat, Vec3};
 
 use crate::axis::AxisConfig;
 use crate::bias::GyroBiasEstimator;
+use crate::mag::MagCalibration;
 
 #[derive(Debug, Clone, Copy)]
 pub struct FusionConfig {
@@ -19,6 +20,8 @@ pub struct FusionConfig {
     pub max_dt_s: f32,
     pub accel_tolerance_mps2: f32,
     pub axes: AxisConfig,
+    /// Yaw correction rate for calibrated magnetometer fusion, in 1/s.
+    pub mag_gain: f32,
 }
 
 impl Default for FusionConfig {
@@ -30,6 +33,7 @@ impl Default for FusionConfig {
             max_dt_s: 0.05,
             accel_tolerance_mps2: 0.5,
             axes: AxisConfig::DOCUMENTED,
+            mag_gain: 1.0,
         }
     }
 }
@@ -39,6 +43,8 @@ pub struct Fusion {
     config: FusionConfig,
     orientation: Quat,
     bias: GyroBiasEstimator,
+    mag_calibration: Option<MagCalibration>,
+    mag_reference_yaw: Option<f32>,
 }
 
 impl Default for Fusion {
@@ -56,6 +62,8 @@ impl Fusion {
             config,
             orientation: Quat::IDENTITY,
             bias,
+            mag_calibration: None,
+            mag_reference_yaw: None,
         }
     }
 
@@ -74,6 +82,55 @@ impl Fusion {
     pub fn reset(&mut self) {
         self.orientation = Quat::IDENTITY;
         self.bias.reset();
+        self.mag_reference_yaw = None;
+    }
+
+    /// Enable MARG yaw correction with a validated profile. Passing `None`
+    /// returns the filter to 6-DOF mode.
+    pub fn set_mag_calibration(&mut self, calibration: Option<MagCalibration>) {
+        self.mag_calibration = calibration;
+        self.mag_reference_yaw = None;
+    }
+
+    pub fn mag_active(&self) -> bool {
+        self.mag_calibration.is_some()
+    }
+
+    /// Apply one calibrated magnetometer sample as a yaw-only correction.
+    ///
+    /// The world heading is held at the value seen on the first sample after
+    /// calibration, so a physical yaw is still tracked by the gyro; this only
+    /// removes accumulated yaw error. Pitch and roll are untouched.
+    pub fn update_mag(&mut self, raw_mag: Vec3, dt_s: f32) -> Quat {
+        let Some(calibration) = self.mag_calibration.as_ref() else {
+            return self.orientation;
+        };
+        if !dt_s.is_finite() || dt_s <= 0.0 {
+            return self.orientation;
+        }
+        let dt = dt_s.clamp(self.config.min_dt_s, self.config.max_dt_s);
+        let mag = self
+            .config
+            .axes
+            .mag
+            .apply(calibration.apply(raw_mag.to_array()));
+        if !mag.is_finite() || mag.length() < 1e-3 {
+            return self.orientation;
+        }
+
+        let world = self.orientation * mag;
+        let heading = world.y.atan2(world.x);
+        let reference = *self.mag_reference_yaw.get_or_insert(heading);
+        let error = wrap_pi(heading - reference);
+        if !error.is_finite() {
+            return self.orientation;
+        }
+
+        let step = (-self.config.mag_gain * error * dt).clamp(-0.05, 0.05);
+        if step.abs() > 1e-9 {
+            self.orientation = (Quat::from_rotation_z(step) * self.orientation).normalize();
+        }
+        self.orientation
     }
 
     /// Update with SI units: accelerometer in m/s², gyroscope in rad/s.
@@ -181,6 +238,10 @@ fn gradient_descent(q: [f32; 4], a: Vec3, beta: f32) -> [f32; 4] {
     gradient
 }
 
+fn wrap_pi(angle: f32) -> f32 {
+    (angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+}
+
 fn normalize_quat(q: [f32; 4]) -> Quat {
     let norm = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
     if norm > 1e-9 && norm.is_finite() {
@@ -255,6 +316,93 @@ mod tests {
         assert_eq!(fusion.orientation(), before);
         fusion.update(flat_accel(), Vec3::new(0.0, 0.0, 1.0), f32::NAN);
         assert_eq!(fusion.orientation(), before);
+    }
+
+    fn identity_mag_calibration() -> MagCalibration {
+        MagCalibration {
+            version: crate::mag::CALIBRATION_VERSION,
+            hard_iron: [0.0; 3],
+            soft_iron: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            board_rotation_deg: 0.0,
+            meta: crate::mag::MagMetadata {
+                created_unix: 0,
+                samples: 1,
+                residual: 0.0,
+                validated: true,
+            },
+        }
+    }
+
+    #[test]
+    fn mag_is_inactive_without_calibration() {
+        let mut fusion = Fusion::default();
+        let before = fusion.orientation();
+        fusion.update_mag(Vec3::X, 0.01);
+        assert_eq!(fusion.orientation(), before);
+        assert!(!fusion.mag_active());
+    }
+
+    #[test]
+    fn mag_correction_removes_yaw_drift() {
+        let mut fusion = Fusion::default();
+        fusion.set_mag_calibration(Some(identity_mag_calibration()));
+        assert!(fusion.mag_active());
+
+        // Establish the world heading with the field along +X.
+        fusion.update(flat_accel(), Vec3::ZERO, 0.01);
+        fusion.update_mag(Vec3::X, 0.01);
+
+        // A false gyro yaw (bias) rotates the estimate while the physical
+        // controller and its field stay still.
+        for _ in 0..40 {
+            fusion.update(flat_accel(), Vec3::new(0.0, 0.0, 0.5), 0.01);
+        }
+        let drifted = fusion.euler_rads()[2];
+        assert!(drifted > 0.15, "expected drift, got {drifted}");
+
+        for _ in 0..600 {
+            fusion.update(flat_accel(), Vec3::ZERO, 0.01);
+            fusion.update_mag(Vec3::X, 0.01);
+        }
+        let corrected = fusion.euler_rads()[2];
+        assert!(corrected.abs() < 0.03, "yaw not corrected: {corrected}");
+    }
+
+    #[test]
+    fn mag_does_not_fight_a_real_yaw() {
+        let mut fusion = Fusion::default();
+        fusion.set_mag_calibration(Some(identity_mag_calibration()));
+        fusion.update(flat_accel(), Vec3::ZERO, 0.01);
+        fusion.update_mag(Vec3::X, 0.01);
+
+        // Rotate 0.4 rad; the body field rotates with the controller.
+        let mut yaw = 0.0f32;
+        for _ in 0..40 {
+            yaw += 0.01;
+            fusion.update(flat_accel(), Vec3::new(0.0, 0.0, 1.0), 0.01);
+            fusion.update_mag(Vec3::new(yaw.cos(), -yaw.sin(), 0.0), 0.01);
+        }
+        let measured = fusion.euler_rads()[2];
+        assert!((measured - 0.4).abs() < 0.05, "yaw {measured}");
+    }
+
+    #[test]
+    fn mag_yaw_correction_keeps_roll_and_pitch() {
+        let mut with_mag = Fusion::default();
+        with_mag.set_mag_calibration(Some(identity_mag_calibration()));
+        let mut without = Fusion::default();
+        let accel = Vec3::new(2.0, 0.0, 9.6);
+
+        for _ in 0..400 {
+            with_mag.update(accel, Vec3::ZERO, 0.005);
+            without.update(accel, Vec3::ZERO, 0.005);
+            with_mag.update_mag(Vec3::X, 0.005);
+        }
+
+        let a = with_mag.euler_rads();
+        let b = without.euler_rads();
+        assert!((a[0] - b[0]).abs() < 1e-3, "roll changed by mag");
+        assert!((a[1] - b[1]).abs() < 1e-3, "pitch changed by mag");
     }
 
     #[test]

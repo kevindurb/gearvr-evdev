@@ -15,7 +15,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 #[cfg(feature = "bluez")]
 use gearvr_ble::bluez::{self, BlueZOptions, BlueZTransport, DeviceSelector};
 use gearvr_core::{Backend, ControllerState, ImuSampleState, LinkState, Orientation};
-use gearvr_fusion::Fusion;
+use gearvr_fusion::{fit, FitOptions, Fusion, MagCalibration};
 #[cfg(feature = "dualsense")]
 use gearvr_output::{dualsense::DualSenseBackend, uhid::UhidSink};
 use gearvr_output::{
@@ -66,6 +66,8 @@ enum Command {
     Probe(ProbeArgs),
     /// Replay a capture file written by `run --capture` or `capture`.
     Replay(ReplayArgs),
+    /// Fit a magnetometer calibration from a capture and write a TOML profile.
+    MagFit(MagFitArgs),
     /// Run the live driver against a paired controller.
     #[cfg(feature = "bluez")]
     Run(RunArgs),
@@ -103,6 +105,14 @@ struct OutputArgs {
     /// UDP destination for `--backend udp`.
     #[arg(long, default_value = "127.0.0.1:9000")]
     udp_target: SocketAddr,
+
+    /// Validated magnetometer calibration (TOML) for optional MARG fusion.
+    #[arg(long, value_name = "PATH")]
+    mag_calibration: Option<PathBuf>,
+
+    /// Fuse the calibrated magnetometer for yaw correction.
+    #[arg(long)]
+    marg: bool,
 }
 
 impl Default for OutputArgs {
@@ -113,6 +123,8 @@ impl Default for OutputArgs {
             invert_touch_y: false,
             volume_buttons: false,
             udp_target: "127.0.0.1:9000".parse().expect("static address"),
+            mag_calibration: None,
+            marg: false,
         }
     }
 }
@@ -246,6 +258,27 @@ struct ReplayArgs {
 }
 
 #[derive(Debug, Parser)]
+struct MagFitArgs {
+    /// Capture file written by `run --capture` or `capture`.
+    capture: PathBuf,
+
+    /// Output TOML profile.
+    #[arg(long, short, default_value = "mag-calibration.toml")]
+    out: PathBuf,
+
+    /// Rotation from the magnetometer board to the controller frame.
+    #[arg(long, default_value_t = -30.0)]
+    board_rotation: f32,
+
+    #[arg(long, default_value_t = 100)]
+    min_samples: usize,
+
+    /// Minimum raw spread per axis; rejects a flat capture.
+    #[arg(long, default_value_t = 100.0)]
+    min_range: f32,
+}
+
+#[derive(Debug, Parser)]
 struct DecodeArgs {
     /// Hex bytes, e.g. "08 00" or "0800". Reads stdin if omitted.
     #[arg(long)]
@@ -297,6 +330,7 @@ async fn main() -> Result<()> {
         #[cfg(feature = "bluez")]
         Command::Probe(args) => probe(args).await,
         Command::Replay(args) => replay(args),
+        Command::MagFit(args) => mag_fit(args),
         #[cfg(feature = "bluez")]
         Command::Run(args) => run(args).await,
     }
@@ -311,6 +345,27 @@ fn init_tracing(verbose: bool) {
         .with_writer(io::stderr)
         .with_target(false)
         .try_init();
+}
+
+fn build_fusion(args: &OutputArgs) -> Result<Fusion> {
+    let mut fusion = Fusion::default();
+    if let Some(path) = args.mag_calibration.as_deref() {
+        let calibration = MagCalibration::load(path)
+            .with_context(|| format!("load magnetometer calibration {}", path.display()))?;
+        tracing::info!(
+            path = %path.display(),
+            samples = calibration.meta.samples,
+            residual = calibration.meta.residual,
+            "magnetometer calibration loaded"
+        );
+        fusion.set_mag_calibration(Some(calibration));
+    } else if args.marg {
+        bail!("--marg requires --mag-calibration <PATH>");
+    }
+    if fusion.mag_active() {
+        tracing::info!("MARG yaw correction enabled");
+    }
+    Ok(fusion)
 }
 
 fn build_backend(args: &OutputArgs) -> Result<Box<dyn Backend>> {
@@ -447,7 +502,7 @@ fn synth(args: SynthArgs) -> Result<()> {
     let start = Instant::now();
     let mut seq = 0u64;
     let mut sample_index = 0u64;
-    let mut fusion = Fusion::default();
+    let mut fusion = build_fusion(&args.output)?;
 
     loop {
         let elapsed = start.elapsed().as_secs_f64();
@@ -479,6 +534,16 @@ fn synth(args: SynthArgs) -> Result<()> {
             let sample = synthetic_sample(t, sample_dt as f32, &mut fusion);
             state.samples.push(sample);
             sample_index += 1;
+        }
+        if fusion.mag_active() {
+            fusion.update_mag(
+                glam::Vec3::new(
+                    state.mag[0] as f32,
+                    state.mag[1] as f32,
+                    state.mag[2] as f32,
+                ),
+                packet_dt as f32,
+            );
         }
         let q = fusion.orientation();
         state.orientation = Some(Orientation {
@@ -886,8 +951,88 @@ async fn run(args: RunArgs) -> Result<()> {
         let _ = shutdown_tx.send(true);
     });
 
-    let mut session = LiveSession::new(connector, backend, capture, SessionConfig::default());
+    let fusion = build_fusion(&args.output)?;
+    let mut session = LiveSession::new(
+        connector,
+        backend,
+        capture,
+        SessionConfig::default(),
+        fusion,
+    );
     session.run(shutdown_rx, deadline).await
+}
+
+fn mag_fit(args: MagFitArgs) -> Result<()> {
+    if args.min_samples == 0 {
+        bail!("--min-samples must be greater than zero");
+    }
+    if !args.board_rotation.is_finite() || args.board_rotation.abs() > 180.0 {
+        bail!("--board-rotation must be finite and within ±180");
+    }
+
+    let samples = load_mag_samples(&args.capture)?;
+    tracing::info!(
+        path = %args.capture.display(),
+        samples = samples.len(),
+        "magnetometer samples"
+    );
+    let result = fit(
+        &samples,
+        FitOptions {
+            board_rotation_deg: args.board_rotation,
+            min_samples: args.min_samples,
+            min_axis_range: args.min_range,
+        },
+    )?;
+
+    let calibration = &result.calibration;
+    println!("samples:     {}", calibration.meta.samples);
+    println!(
+        "hard iron:   [{:.1}, {:.1}, {:.1}]",
+        calibration.hard_iron[0], calibration.hard_iron[1], calibration.hard_iron[2]
+    );
+    println!(
+        "axis radii:  [{:.1}, {:.1}, {:.1}]",
+        result.radii[0], result.radii[1], result.radii[2]
+    );
+    println!(
+        "soft iron:   [{:.4}, {:.4}, {:.4}]",
+        calibration.soft_iron[0][0], calibration.soft_iron[1][1], calibration.soft_iron[2][2]
+    );
+    println!("residual:    {:.4}", calibration.meta.residual);
+
+    calibration
+        .save(&args.out)
+        .with_context(|| format!("write magnetometer calibration {}", args.out.display()))?;
+    println!("wrote {}", args.out.display());
+    Ok(())
+}
+
+fn load_mag_samples(path: &Path) -> Result<Vec<[f32; 3]>> {
+    let file = File::open(path).with_context(|| format!("open capture {}", path.display()))?;
+    let mut samples = Vec::new();
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line = line?;
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let record: CaptureRecord = serde_json::from_str(line)
+            .with_context(|| format!("{}:{}: invalid capture record", path.display(), index + 1))?;
+        if record.dir != "rx" {
+            continue;
+        }
+        let bytes = parse_hex(&record.hex)?;
+        let packet = gearvr_protocol::parse(&bytes);
+        if let Some(sensor) = packet.as_sensor() {
+            let mag = sensor.suffix().mag;
+            // The controller reports zeros until the first magnetometer sample.
+            if mag != [0, 0, 0] {
+                samples.push([mag[0] as f32, mag[1] as f32, mag[2] as f32]);
+            }
+        }
+    }
+    Ok(samples)
 }
 
 fn replay(args: ReplayArgs) -> Result<()> {
@@ -1053,6 +1198,18 @@ mod tests {
             assert!(touch.x <= 320);
             assert!(touch.y <= 320);
         }
+    }
+
+    #[test]
+    fn marg_requires_a_calibration() {
+        let missing = OutputArgs {
+            marg: true,
+            ..Default::default()
+        };
+        assert!(build_fusion(&missing).is_err());
+
+        let default = build_fusion(&OutputArgs::default()).unwrap();
+        assert!(!default.mag_active());
     }
 
     #[cfg(feature = "dualsense")]

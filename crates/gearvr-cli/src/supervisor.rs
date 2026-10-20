@@ -110,6 +110,7 @@ pub(crate) struct LiveSession<C: Connector> {
     seq: u64,
     last_timestamp: Option<u32>,
     last_packet: Option<Duration>,
+    last_mag: Option<Duration>,
     /// Whether the current session ever reached streaming. Used to reset the
     /// backoff even when the drop surfaces as a failed command write.
     session_streamed: bool,
@@ -122,6 +123,7 @@ impl<C: Connector> LiveSession<C> {
         backend: Box<dyn Backend>,
         capture: Option<CaptureWriter>,
         config: SessionConfig,
+        fusion: Fusion,
     ) -> Self {
         Self {
             connector,
@@ -132,10 +134,11 @@ impl<C: Connector> LiveSession<C> {
                 link: LinkState::Connecting,
                 ..Default::default()
             },
-            fusion: Fusion::default(),
+            fusion,
             seq: 0,
             last_timestamp: None,
             last_packet: None,
+            last_mag: None,
             session_streamed: false,
             config,
         }
@@ -216,6 +219,7 @@ impl<C: Connector> LiveSession<C> {
         let mut sequencer = Sequencer::new(self.config.sequencer);
         self.last_timestamp = None;
         self.last_packet = None;
+        self.last_mag = None;
         self.session_streamed = false;
 
         let events = sequencer.start(Duration::ZERO);
@@ -354,6 +358,24 @@ impl<C: Connector> LiveSession<C> {
                     glam::Vec3::from_array(sample.gyro_rads),
                     dt,
                 );
+            }
+
+            if self.fusion.mag_active() {
+                let dt = self
+                    .last_mag
+                    .map(|last| now.saturating_sub(last).as_secs_f32())
+                    .unwrap_or(1.0 / 68.0);
+                if dt > 0.0 {
+                    self.fusion.update_mag(
+                        glam::Vec3::new(
+                            self.state.mag[0] as f32,
+                            self.state.mag[1] as f32,
+                            self.state.mag[2] as f32,
+                        ),
+                        dt,
+                    );
+                }
+                self.last_mag = Some(now);
             }
 
             let q = self.fusion.orientation();
@@ -588,7 +610,13 @@ mod tests {
 
         // A single backend instance is moved into the supervisor and must be the
         // only one used for every reconnect.
-        let mut session = LiveSession::new(connector, Box::new(backend), None, config);
+        let mut session = LiveSession::new(
+            connector,
+            Box::new(backend),
+            None,
+            config,
+            Fusion::default(),
+        );
         let deadline = Some(Instant::now() + Duration::from_secs(5));
         session.run(shutdown_rx, deadline).await.unwrap();
 
@@ -672,6 +700,7 @@ mod tests {
             }),
             None,
             SessionConfig::default(),
+            Fusion::default(),
         );
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
         let deadline = Some(Instant::now() + Duration::from_millis(40));

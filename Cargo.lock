@@ -492,6 +492,9 @@ dependencies = [
  "gearvr-core",
  "gearvr-protocol",
  "glam",
+ "serde",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]
