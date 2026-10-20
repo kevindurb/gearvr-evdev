@@ -489,6 +489,7 @@ fn synth(args: SynthArgs) -> Result<()> {
         state.gyro_bias_rads = [bias.x, bias.y, bias.z];
 
         backend.on_state(&state).context("backend state")?;
+        backend.on_tick(&state).context("backend tick")?;
         seq += 1;
 
         // Absolute schedule avoids accumulating sleep error.

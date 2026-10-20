@@ -225,8 +225,10 @@ The virtual identity is VID/PID `054c:0ce6`, name `Wireless Controller`, MAC
 the evdev gamepad.
 
 Steam's desktop controller layout accepts the gyro binding, and yaw/roll/pitch
-all move the cursor in the expected direction. Remaining: a long-session run and
-packaging the service.
+all move the cursor in the expected direction. The touchpad position and click
+work once Steam's DualSense desktop layout binds them (Touchpad Click → Left
+Mouse Click); the default layout leaves that unbound, which looks like a driver
+bug. Remaining: a long-session run and packaging the service.
 
 ## Not yet validated
 

@@ -125,6 +125,11 @@ player), and the fusion's stationary gyro-bias estimate is subtracted. Without
 that subtraction the virtual pad drifts steadily in Steam; hold the controller
 still for about two seconds after connecting so the estimator can initialize.
 
+Steam's default desktop layout does not bind the DualSense touchpad click to a
+mouse button. In **Settings → Controller → Desktop Layout → Edit Layout**, select
+the DualSense in the controller selector and bind **Touchpad Click → Left Mouse
+Click** (the touchpad position is already usable for movement).
+
 ## Mechanism 3 — direct API / OpenXR integration
 
 Instead of presenting a generic device, the driver could act as an
