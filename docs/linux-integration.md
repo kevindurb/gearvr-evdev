@@ -99,6 +99,26 @@ that SDL's PS5 driver doesn't reject it), and you are impersonating a Sony devic
 which is legally/ethically fine for interoperability in the EU but is worth a
 note. Also: a virtual DualSense is *not* what a VR runtime wants.
 
+### Implemented status (2026-10-20)
+
+`gearvr-output` now has an opt-in `dualsense` backend built on `/dev/uhid`:
+
+```sh
+cargo build --release -p gearvr-cli --features dualsense
+gearvr-cli run 'Gear VR' --backend dualsense
+```
+
+It creates `054c:0ce6` with `BUS_BLUETOOTH`, the name `Wireless Controller`, a
+stable virtual MAC (`02:47:56:52:00:01`), and answers the kernel's feature
+reports (`0x05` calibration, `0x09` pairing info, `0x20` firmware info). Reports
+are sent every 16 ms, including when the state is unchanged, and a neutral report
+is sent on disconnect. On the Deck the kernel registered the DualSense and Steam
+generated the `54c/ce6` SDL mapping, including the touchpad.
+
+Rollback is just omitting `--backend dualsense`; the evdev gamepad path is
+unchanged and the uhid device is destroyed when the process exits. Do not run
+both backends at once, or Steam will see two controllers.
+
 ## Mechanism 3 — direct API / OpenXR integration
 
 Instead of presenting a generic device, the driver could act as an

@@ -47,10 +47,10 @@
 
 ## 6. Virtual DualSense backend
 
-- [ ] 6.1 Add a feature-gated `dualsense` output dependency on `uhid` and implement a pure report builder with Bluetooth CRC32; verify known CRC vectors and report-shape tests pass.
-- [ ] 6.2 Add a fake uhid transport and backend tests for the 16 ms continuous report cadence, neutral report on disconnect, and unchanged-state reporting; verify no report is emitted when the backend is disabled.
-- [ ] 6.3 Wire an opt-in CLI/config selection for the DualSense backend with trigger, Home, Back, touchpad, battery, and fused motion mapping; verify mapping tests and that the evdev backend is unaffected.
-- [ ] 6.4 Document the DualSense identity, Steam setup, expected gyro behavior, and rollback to evdev in `docs/linux-integration.md` and `packaging/README.md`; verify the documented flags exist.
+- [x] 6.1 Add a feature-gated `dualsense` output dependency on `uhid` and implement a pure report builder with Bluetooth CRC32; verify known CRC vectors and report-shape tests pass.
+- [x] 6.2 Add a fake uhid transport and backend tests for the 16 ms continuous report cadence, neutral report on disconnect, and unchanged-state reporting; verify no report is emitted when the backend is disabled.
+- [x] 6.3 Wire an opt-in CLI/config selection for the DualSense backend with trigger, Home, Back, touchpad, battery, and fused motion mapping; verify mapping tests and that the evdev backend is unaffected.
+- [x] 6.4 Document the DualSense identity, Steam setup, expected gyro behavior, and rollback to evdev in `docs/linux-integration.md` and `packaging/README.md`; verify the documented flags exist.
 - [ ] 6.5 Run `cargo fmt --all --check`, `cargo test --workspace --all-features`, and `cargo clippy --workspace --all-targets --all-features -- -D warnings`; verify all pass.
 
 ## 7. Packaging, permissions, and service

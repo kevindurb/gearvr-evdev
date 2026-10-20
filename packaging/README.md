@@ -12,6 +12,31 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=input
 ```
 
+## Virtual DualSense (opt-in)
+
+Build with the feature and select the backend:
+
+```sh
+cargo build --release -p gearvr-cli --features dualsense
+gearvr-cli run 'Gear VR' --backend dualsense
+```
+
+This creates a Bluetooth DualSense (`054c:0ce6`, `Wireless Controller`) through
+`/dev/uhid`. Steam sees a real DualSense and can use its gyro. The virtual MAC is
+stable (`02:47:56:52:00:01`), so Steam keeps the same controller configuration.
+
+Requirements and notes:
+
+- Your user needs read/write access to `/dev/uhid`. On the Deck this is already
+  granted; otherwise use a udev rule such as
+  `KERNEL=="uhid", TAG+="uaccess"` (or the `input` group) and re-login.
+- `hid_playstation` creates three nodes: the gamepad, motion sensors, and
+  touchpad. Reading the motion node with `evtest` as a non-root user needs an
+  additional ACL; Steam reads the HID device directly and does not need it.
+- Do not run the DualSense backend and the evdev gamepad at the same time.
+- Rollback is omitting the flag: `--backend evdev` remains the default and
+  creates only the `1209` devices.
+
 ## systemd user service
 
 Build/install `gearvr-cli` at `~/.local/bin/gearvr-cli` (or edit `ExecStart`),

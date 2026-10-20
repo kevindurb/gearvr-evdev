@@ -21,9 +21,8 @@ a retail unit. Two hardware findings are recorded in
 [`docs/implementation.md`](docs/implementation.md): a transposed service UUID
 (now fixed) and the calibration record's still-unresolved semantic layout.
 
-Still open: gestures, magnetometer scale and board rotation, multi-hour sleep
-behavior, the systemd service, and Steam-side gyro (which needs the `uhid`
-DualSense backend).
+Still open: confirming gyro in Steam's controller UI, gestures, magnetometer
+calibration, multi-hour sleep behavior, and the systemd service.
 
 See [`docs/implementation.md`](docs/implementation.md) for what is built and
 what the Deck validation actually showed, and

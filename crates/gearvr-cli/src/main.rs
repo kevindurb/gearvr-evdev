@@ -16,6 +16,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use gearvr_ble::bluez::{self, BlueZOptions, BlueZTransport, DeviceSelector};
 use gearvr_core::{Backend, ControllerState, ImuSampleState, LinkState, Orientation};
 use gearvr_fusion::Fusion;
+#[cfg(feature = "dualsense")]
+use gearvr_output::{dualsense::DualSenseBackend, uhid::UhidSink};
 use gearvr_output::{
     ButtonMap, EvdevBackend, EvdevConfig, JsonBackend, MotionNodeConfig, UdpBackend, UdpConfig,
 };
@@ -75,6 +77,9 @@ enum BackendKind {
     Json,
     Udp,
     Null,
+    /// Virtual DualSense over Bluetooth uhid (needs the `dualsense` feature).
+    #[cfg(feature = "dualsense")]
+    Dualsense,
 }
 
 #[derive(Debug, Args)]
@@ -327,6 +332,14 @@ fn build_backend(args: &OutputArgs) -> Result<Box<dyn Backend>> {
         BackendKind::Json => Box::new(JsonBackend::new(io::stdout())),
         BackendKind::Udp => Box::new(UdpBackend::new(UdpConfig::new(args.udp_target))?),
         BackendKind::Null => Box::new(NullBackend),
+        #[cfg(feature = "dualsense")]
+        BackendKind::Dualsense => {
+            // A stable locally-administered MAC keeps Steam's configuration
+            // attached to the same virtual controller across restarts.
+            let mac = [0x02, 0x47, 0x56, 0x52, 0x00, 0x01];
+            let sink = UhidSink::open(mac).context("create virtual DualSense at /dev/uhid")?;
+            Box::new(DualSenseBackend::new(Box::new(sink)))
+        }
     })
 }
 
@@ -1039,6 +1052,15 @@ mod tests {
             assert!(touch.x <= 320);
             assert!(touch.y <= 320);
         }
+    }
+
+    #[cfg(feature = "dualsense")]
+    #[test]
+    fn dualsense_backend_is_selectable() {
+        assert_eq!(
+            <BackendKind as ValueEnum>::from_str("dualsense", true).unwrap(),
+            BackendKind::Dualsense
+        );
     }
 
     #[test]

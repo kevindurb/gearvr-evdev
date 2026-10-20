@@ -11,7 +11,11 @@ repository.workspace = true
 evdev.workspace = true
 gearvr-core = { path = "../gearvr-core" }
 gearvr-protocol = { path = "../gearvr-protocol" }
+libc = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+[features]
+dualsense = ["dep:libc"]

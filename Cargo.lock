@@ -501,6 +501,7 @@ dependencies = [
  "evdev",
  "gearvr-core",
  "gearvr-protocol",
+ "libc",
  "serde",
  "serde_json",
  "thiserror",
