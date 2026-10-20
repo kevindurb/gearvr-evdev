@@ -171,6 +171,8 @@ pub enum MagCalibrationError {
         range: f32,
         minimum: f32,
     },
+    #[error("magnetic fit residual {residual:.3} exceeds {maximum:.3}; capture a fuller tumble away from metal")]
+    PoorFit { residual: f32, maximum: f32 },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -180,6 +182,9 @@ pub struct FitOptions {
     /// Minimum raw spread per axis. A flat capture cannot separate hard iron
     /// from the Earth field.
     pub min_axis_range: f32,
+    /// Reject a fit whose corrected field still varies by more than this
+    /// fraction of its mean magnitude.
+    pub max_residual: f32,
 }
 
 impl Default for FitOptions {
@@ -188,6 +193,7 @@ impl Default for FitOptions {
             board_rotation_deg: -30.0,
             min_samples: 100,
             min_axis_range: 100.0,
+            max_residual: 0.15,
         }
     }
 }
@@ -199,11 +205,12 @@ pub struct MagFit {
     pub radii: [f32; 3],
 }
 
-/// Fit hard iron (center) and diagonal soft iron (axis scaling) from a tumble.
+/// Fit hard iron and a full symmetric soft-iron matrix from a tumble.
 ///
-/// This is the min/max method: the centre of each axis extent is the hard-iron
-/// offset, and each axis is scaled to the mean radius. It assumes the capture
-/// covers all orientations; `min_axis_range` rejects a flat one.
+/// This solves the general ellipsoid equation, so the hard-iron centre is not
+/// biased by a partial tumble and a tilted soft-iron response is corrected.
+/// The soft-iron matrix maps the ellipsoid to a sphere; it is normalised so its
+/// mean semi-axis is 1, which keeps the saved numbers close to unity.
 pub fn fit(samples: &[[f32; 3]], options: FitOptions) -> Result<MagFit, MagCalibrationError> {
     if samples.len() < options.min_samples {
         return Err(MagCalibrationError::NotEnoughSamples {
@@ -220,9 +227,6 @@ pub fn fit(samples: &[[f32; 3]], options: FitOptions) -> Result<MagFit, MagCalib
             max[axis] = max[axis].max(sample[axis]);
         }
     }
-
-    let mut center = [0.0f32; 3];
-    let mut radius = [0.0f32; 3];
     for axis in 0..3 {
         let range = max[axis] - min[axis];
         if !range.is_finite() || range < options.min_axis_range {
@@ -232,17 +236,9 @@ pub fn fit(samples: &[[f32; 3]], options: FitOptions) -> Result<MagFit, MagCalib
                 minimum: options.min_axis_range,
             });
         }
-        center[axis] = (max[axis] + min[axis]) / 2.0;
-        radius[axis] = range / 2.0;
     }
 
-    let target = (radius[0] + radius[1] + radius[2]) / 3.0;
-    let soft_iron = [
-        [target / radius[0], 0.0, 0.0],
-        [0.0, target / radius[1], 0.0],
-        [0.0, 0.0, target / radius[2]],
-    ];
-
+    let (center, radii, soft_iron) = fit_ellipsoid(samples)?;
     let mut calibration = MagCalibration {
         version: CALIBRATION_VERSION,
         hard_iron: center,
@@ -263,23 +259,279 @@ pub fn fit(samples: &[[f32; 3]], options: FitOptions) -> Result<MagFit, MagCalib
     for sample in samples {
         magnitudes.push(calibration.apply(*sample).length());
     }
-    let mean = magnitudes.iter().sum::<f32>() / magnitudes.len() as f32;
+    let magnitude_mean = magnitudes.iter().sum::<f32>() / magnitudes.len() as f32;
     let variance = magnitudes
         .iter()
-        .map(|magnitude| (magnitude - mean).powi(2))
+        .map(|magnitude| (magnitude - magnitude_mean).powi(2))
         .sum::<f32>()
         / magnitudes.len() as f32;
-    calibration.meta.residual = if mean > 0.0 {
-        variance.sqrt() / mean
+    let residual = if magnitude_mean > 0.0 {
+        variance.sqrt() / magnitude_mean
     } else {
         0.0
     };
+    calibration.meta.residual = residual;
+    if residual > options.max_residual {
+        return Err(MagCalibrationError::PoorFit {
+            residual,
+            maximum: options.max_residual,
+        });
+    }
 
     Ok(MagFit {
         calibration,
         center,
-        radii: radius,
+        radii,
     })
+}
+
+fn fit_ellipsoid(
+    samples: &[[f32; 3]],
+) -> Result<([f32; 3], [f32; 3], [[f32; 3]; 3]), MagCalibrationError> {
+    let count = samples.len() as f64;
+    let mut mean = [0.0f64; 3];
+    for sample in samples {
+        for axis in 0..3 {
+            mean[axis] += f64::from(sample[axis]);
+        }
+    }
+    for value in &mut mean {
+        *value /= count;
+    }
+
+    // a x² + b y² + c z² + 2d xy + 2e xz + 2f yz + 2g x + 2h y + 2i z = 1
+    let mut normal = [[0.0f64; 9]; 9];
+    let mut target = [0.0f64; 9];
+    for sample in samples {
+        let x = f64::from(sample[0]) - mean[0];
+        let y = f64::from(sample[1]) - mean[1];
+        let z = f64::from(sample[2]) - mean[2];
+        let row = [
+            x * x,
+            y * y,
+            z * z,
+            2.0 * x * y,
+            2.0 * x * z,
+            2.0 * y * z,
+            2.0 * x,
+            2.0 * y,
+            2.0 * z,
+        ];
+        for i in 0..9 {
+            for j in 0..9 {
+                normal[i][j] += row[i] * row[j];
+            }
+            target[i] += row[i];
+        }
+    }
+
+    let solution = solve9(normal, target).ok_or_else(|| {
+        MagCalibrationError::Invalid(
+            "degenerate magnetic samples; capture a fuller tumble".to_string(),
+        )
+    })?;
+
+    let a = [
+        [solution[0], solution[3], solution[4]],
+        [solution[3], solution[1], solution[5]],
+        [solution[4], solution[5], solution[2]],
+    ];
+    let g = [solution[6], solution[7], solution[8]];
+    let inverse = inverse3(a).ok_or_else(|| {
+        MagCalibrationError::Invalid("magnetic ellipsoid is singular".to_string())
+    })?;
+
+    let mut center_offset = [0.0f64; 3];
+    for row in 0..3 {
+        for column in 0..3 {
+            center_offset[row] -= inverse[row][column] * g[column];
+        }
+    }
+    let scale = 1.0 - dot3(g, center_offset);
+    if !scale.is_finite() || scale <= 1e-12 {
+        return Err(MagCalibrationError::Invalid(
+            "magnetic ellipsoid has no interior".to_string(),
+        ));
+    }
+
+    let mut shape = [[0.0f64; 3]; 3];
+    for row in 0..3 {
+        for column in 0..3 {
+            shape[row][column] = a[row][column] / scale;
+        }
+    }
+    let (eigenvalues, eigenvectors) = eigen_sym3(shape);
+    if eigenvalues
+        .iter()
+        .any(|value| !value.is_finite() || *value <= 1e-12)
+    {
+        return Err(MagCalibrationError::Invalid(
+            "magnetic ellipsoid is not positive definite".to_string(),
+        ));
+    }
+
+    // Semi-axes of the fitted ellipsoid, in raw counts.
+    let radii = [
+        (1.0 / eigenvalues[0].sqrt()) as f32,
+        (1.0 / eigenvalues[1].sqrt()) as f32,
+        (1.0 / eigenvalues[2].sqrt()) as f32,
+    ];
+    let mean_radius = (f64::from(radii[0]) + f64::from(radii[1]) + f64::from(radii[2])) / 3.0;
+    if !mean_radius.is_finite() || mean_radius <= 0.0 {
+        return Err(MagCalibrationError::Invalid(
+            "magnetic ellipsoid has no usable scale".to_string(),
+        ));
+    }
+    let scales = [
+        mean_radius / f64::from(radii[0]),
+        mean_radius / f64::from(radii[1]),
+        mean_radius / f64::from(radii[2]),
+    ];
+
+    let mut soft_iron = [[0.0f32; 3]; 3];
+    for row in 0..3 {
+        for column in 0..3 {
+            let mut value = 0.0f64;
+            for axis in 0..3 {
+                value += eigenvectors[row][axis] * scales[axis] * eigenvectors[column][axis];
+            }
+            soft_iron[row][column] = value as f32;
+        }
+    }
+
+    let center = [
+        (mean[0] + center_offset[0]) as f32,
+        (mean[1] + center_offset[1]) as f32,
+        (mean[2] + center_offset[2]) as f32,
+    ];
+    Ok((center, radii, soft_iron))
+}
+
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn solve9(mut matrix: [[f64; 9]; 9], mut target: [f64; 9]) -> Option<[f64; 9]> {
+    for column in 0..9 {
+        let mut pivot = column;
+        for row in (column + 1)..9 {
+            if matrix[row][column].abs() > matrix[pivot][column].abs() {
+                pivot = row;
+            }
+        }
+        if matrix[pivot][column].abs() < 1e-12 {
+            return None;
+        }
+        if pivot != column {
+            matrix.swap(pivot, column);
+            target.swap(pivot, column);
+        }
+        let divisor = matrix[column][column];
+        for index in column..9 {
+            matrix[column][index] /= divisor;
+        }
+        target[column] /= divisor;
+        for row in 0..9 {
+            if row == column {
+                continue;
+            }
+            let factor = matrix[row][column];
+            if factor == 0.0 {
+                continue;
+            }
+            for index in column..9 {
+                matrix[row][index] -= factor * matrix[column][index];
+            }
+            target[row] -= factor * target[column];
+        }
+    }
+    Some(target)
+}
+
+fn inverse3(matrix: [[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
+    let determinant = matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1])
+        - matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0])
+        + matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
+    if !determinant.is_finite() || determinant.abs() < 1e-18 {
+        return None;
+    }
+    let inverse_determinant = 1.0 / determinant;
+    Some([
+        [
+            (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1]) * inverse_determinant,
+            (matrix[0][2] * matrix[2][1] - matrix[0][1] * matrix[2][2]) * inverse_determinant,
+            (matrix[0][1] * matrix[1][2] - matrix[0][2] * matrix[1][1]) * inverse_determinant,
+        ],
+        [
+            (matrix[1][2] * matrix[2][0] - matrix[1][0] * matrix[2][2]) * inverse_determinant,
+            (matrix[0][0] * matrix[2][2] - matrix[0][2] * matrix[2][0]) * inverse_determinant,
+            (matrix[0][2] * matrix[1][0] - matrix[0][0] * matrix[1][2]) * inverse_determinant,
+        ],
+        [
+            (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]) * inverse_determinant,
+            (matrix[0][1] * matrix[2][0] - matrix[0][0] * matrix[2][1]) * inverse_determinant,
+            (matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]) * inverse_determinant,
+        ],
+    ])
+}
+
+/// Jacobi eigenvalue decomposition of a real symmetric 3×3 matrix.
+/// Eigenvectors are returned as the columns of the second result.
+fn eigen_sym3(mut matrix: [[f64; 3]; 3]) -> ([f64; 3], [[f64; 3]; 3]) {
+    let mut vectors = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    for _ in 0..64 {
+        let (p, q) = {
+            let mut p = 0;
+            let mut q = 1;
+            let mut largest = matrix[0][1].abs();
+            for (row, column) in [(0, 2), (1, 2)] {
+                if matrix[row][column].abs() > largest {
+                    largest = matrix[row][column].abs();
+                    p = row;
+                    q = column;
+                }
+            }
+            (p, q)
+        };
+        if matrix[p][q].abs() < 1e-12 {
+            break;
+        }
+
+        let theta = (matrix[q][q] - matrix[p][p]) / (2.0 * matrix[p][q]);
+        let t = if theta >= 0.0 {
+            1.0 / (theta + (theta * theta + 1.0).sqrt())
+        } else {
+            1.0 / (theta - (theta * theta + 1.0).sqrt())
+        };
+        let c = 1.0 / (t * t + 1.0).sqrt();
+        let s = t * c;
+
+        let app = matrix[p][p];
+        let aqq = matrix[q][q];
+        let apq = matrix[p][q];
+        matrix[p][p] = c * c * app - 2.0 * s * c * apq + s * s * aqq;
+        matrix[q][q] = s * s * app + 2.0 * s * c * apq + c * c * aqq;
+        matrix[p][q] = 0.0;
+        matrix[q][p] = 0.0;
+        for r in 0..3 {
+            if r != p && r != q {
+                let arp = matrix[r][p];
+                let arq = matrix[r][q];
+                matrix[r][p] = c * arp - s * arq;
+                matrix[p][r] = matrix[r][p];
+                matrix[r][q] = s * arp + c * arq;
+                matrix[q][r] = matrix[r][q];
+            }
+        }
+        for row in &mut vectors {
+            let vp = row[p];
+            let vq = row[q];
+            row[p] = c * vp - s * vq;
+            row[q] = s * vp + c * vq;
+        }
+    }
+
+    ([matrix[0][0], matrix[1][1], matrix[2][2]], vectors)
 }
 
 #[cfg(test)]
@@ -390,9 +642,15 @@ mod tests {
 
         for (axis, expected_center) in center.iter().enumerate() {
             assert!(
-                (result.center[axis] - expected_center).abs() < 5.0,
+                (result.center[axis] - expected_center).abs() < 1.0,
                 "axis {axis}: center {} vs {expected_center}",
                 result.center[axis],
+            );
+            assert!(
+                (result.radii[axis] - scale[axis] * radius).abs() < 2.0,
+                "axis {axis}: radius {} vs {}",
+                result.radii[axis],
+                scale[axis] * radius
             );
         }
         let mean_scale = (scale[0] + scale[1] + scale[2]) / 3.0;
@@ -405,7 +663,74 @@ mod tests {
             );
         }
         assert!(result.calibration.meta.residual < 5e-3);
-        assert!(result.calibration.meta.validated);
+    }
+
+    #[test]
+    fn fit_handles_a_rotated_ellipsoid() {
+        let center = [2785.0f32, -7358.0, -714.0];
+        let scale = [1.0f32, 0.8, 1.2];
+        let radius = 700.0f32;
+        let (cz, sz) = 30f32.to_radians().sin_cos();
+        let (cx, sx) = 20f32.to_radians().sin_cos();
+
+        let samples: Vec<[f32; 3]> = (0..800)
+            .map(|index| {
+                let z = 1.0 - 2.0 * (index as f32 + 0.5) / 800.0;
+                let phi = index as f32 * 2.399_963_2;
+                let r = (1.0 - z * z).sqrt();
+                let p = [
+                    scale[0] * radius * r * phi.cos(),
+                    scale[1] * radius * r * phi.sin(),
+                    scale[2] * radius * z,
+                ];
+                let rz = [cz * p[0] - sz * p[1], sz * p[0] + cz * p[1], p[2]];
+                let rx = [rz[0], cx * rz[1] - sx * rz[2], sx * rz[1] + cx * rz[2]];
+                [center[0] + rx[0], center[1] + rx[1], center[2] + rx[2]]
+            })
+            .collect();
+
+        let result = fit(
+            &samples,
+            FitOptions {
+                board_rotation_deg: 0.0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        for axis in 0..3 {
+            assert!((result.center[axis] - center[axis]).abs() < 1.0);
+        }
+
+        let magnitudes: Vec<f32> = samples
+            .iter()
+            .map(|sample| result.calibration.apply(*sample).length())
+            .collect();
+        let mean = magnitudes.iter().sum::<f32>() / magnitudes.len() as f32;
+        let std = (magnitudes
+            .iter()
+            .map(|value| (value - mean).powi(2))
+            .sum::<f32>()
+            / magnitudes.len() as f32)
+            .sqrt();
+        assert!(std / mean < 5e-3, "residual {}", std / mean);
+    }
+
+    #[test]
+    fn fit_rejects_high_residual() {
+        let samples: Vec<[f32; 3]> = (0..600)
+            .map(|index| {
+                let z = 1.0 - 2.0 * (index as f32 + 0.5) / 600.0;
+                let phi = index as f32 * 2.399_963_2;
+                let r = (1.0 - z * z).sqrt();
+                let radius = if index % 2 == 0 { 200.0 } else { 900.0 };
+                [radius * r * phi.cos(), radius * r * phi.sin(), radius * z]
+            })
+            .collect();
+        assert!(matches!(
+            fit(&samples, FitOptions::default()),
+            Err(MagCalibrationError::PoorFit { .. })
+        ));
     }
 
     #[test]

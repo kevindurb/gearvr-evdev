@@ -1,12 +1,16 @@
 //! Minimal `/dev/uhid` transport for the virtual DualSense.
 //!
-//! The kernel ABI from `<linux/uhid.h>` is encoded by hand. The fd is
-//! non-blocking; the backend pumps it on every tick to answer feature-report
-//! requests and drain output reports.
+//! The kernel ABI from `<linux/uhid.h>` is encoded by hand. A dedicated reader
+//! thread answers feature-report requests and drains output reports even while
+//! the controller is disconnected or the backend is between ticks; SDL and
+//! `hid-playstation` probe the device asynchronously and will fall back to a
+//! generic pad if a feature read is not answered promptly.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 
 use gearvr_core::BackendError;
 
@@ -34,12 +38,17 @@ const EVENT_SIZE: usize = 4 + 128 + 64 + 64 + 2 + 2 + 4 * 4 + UHID_DATA_MAX;
 const BUS_BLUETOOTH: u16 = 0x05;
 const EINVAL: u16 = -22i32 as u16;
 
-/// A created uhid device. Dropping it sends `UHID_DESTROY`.
-pub struct UhidDevice {
-    file: File,
+struct Features {
     calibration: Vec<u8>,
     pairing: Vec<u8>,
     firmware: Vec<u8>,
+}
+
+/// A created uhid device. Dropping it sends `UHID_DESTROY`.
+pub struct UhidDevice {
+    writer: Arc<Mutex<File>>,
+    stop: Arc<AtomicBool>,
+    reader: Option<JoinHandle<()>>,
 }
 
 impl UhidDevice {
@@ -48,76 +57,106 @@ impl UhidDevice {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
-            .custom_flags(libc::O_NONBLOCK)
             .open("/dev/uhid")?;
-
+        let reader = file.try_clone()?;
+        let writer = Arc::new(Mutex::new(file));
         let uniq = format_mac(mac);
-        let mut device = Self {
-            file,
+
+        let create = create2(PRODUCT_NAME, &uniq, REPORT_DESCRIPTOR.as_slice());
+        writer
+            .lock()
+            .map_err(|_| io::Error::other("uhid writer poisoned"))?
+            .write_all(&create)?;
+
+        let features = Arc::new(Features {
             calibration: calibration_report().to_vec(),
             pairing: pairing_report(mac).to_vec(),
             firmware: firmware_report().to_vec(),
-        };
-        let create = create2(PRODUCT_NAME, &uniq, REPORT_DESCRIPTOR.as_slice());
-        device.write_event(&create)?;
-        Ok(device)
+        });
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader_writer = writer.clone();
+        let reader_stop = stop.clone();
+        let handle = std::thread::spawn(move || {
+            read_loop(reader, reader_writer, features, reader_stop);
+        });
+
+        Ok(Self {
+            writer,
+            stop,
+            reader: Some(handle),
+        })
     }
 
-    /// Drain pending events. Returns `Ok` when the queue is empty.
-    pub fn pump(&mut self) -> io::Result<()> {
-        let mut buffer = [0u8; EVENT_SIZE];
-        loop {
-            match self.file.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(size) => self.handle(&buffer[..size])?,
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(error) => return Err(error),
-            }
-        }
-        Ok(())
-    }
-
-    pub fn send_input(&mut self, report: &[u8]) -> io::Result<()> {
-        self.write_event(&input2(report))
-    }
-
-    fn write_event(&mut self, event: &[u8]) -> io::Result<()> {
-        self.file.write_all(event)
-    }
-
-    fn handle(&mut self, event: &[u8]) -> io::Result<()> {
-        if event.len() < 4 {
-            return Ok(());
-        }
-        let kind = u32::from_le_bytes(event[0..4].try_into().expect("4 bytes"));
-        match kind {
-            UHID_GET_REPORT if event.len() >= 10 => {
-                let id = u32::from_le_bytes(event[4..8].try_into().expect("4 bytes"));
-                let report_number = event[8];
-                let reply = match report_number {
-                    FEATURE_CALIBRATION => get_report_reply(id, Some(&self.calibration)),
-                    FEATURE_PAIRING_INFO => get_report_reply(id, Some(&self.pairing)),
-                    FEATURE_FIRMWARE_INFO => get_report_reply(id, Some(&self.firmware)),
-                    _ => get_report_reply(id, None),
-                };
-                self.write_event(&reply)?;
-            }
-            UHID_SET_REPORT if event.len() >= 10 => {
-                let id = u32::from_le_bytes(event[4..8].try_into().expect("4 bytes"));
-                self.write_event(&set_report_reply(id))?;
-            }
-            UHID_OUTPUT | UHID_START | UHID_STOP | UHID_OPEN | UHID_CLOSE | UHID_DESTROY => {}
-            _ => {}
-        }
-        Ok(())
+    pub fn send_input(&self, report: &[u8]) -> io::Result<()> {
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| io::Error::other("uhid writer poisoned"))?;
+        writer.write_all(&input2(report))
     }
 }
 
 impl Drop for UhidDevice {
     fn drop(&mut self) {
-        let _ = self.file.write_all(&UHID_DESTROY.to_le_bytes());
+        self.stop.store(true, Ordering::SeqCst);
+        if let Ok(mut writer) = self.writer.lock() {
+            let _ = writer.write_all(&UHID_DESTROY.to_le_bytes());
+        }
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
     }
+}
+
+fn read_loop(
+    mut file: File,
+    writer: Arc<Mutex<File>>,
+    features: Arc<Features>,
+    stop: Arc<AtomicBool>,
+) {
+    let mut buffer = [0u8; EVENT_SIZE];
+    while !stop.load(Ordering::SeqCst) {
+        match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(size) => {
+                if handle_event(&buffer[..size], &features, &writer).is_err() {
+                    break;
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        }
+    }
+}
+
+fn handle_event(event: &[u8], features: &Features, writer: &Mutex<File>) -> io::Result<()> {
+    if event.len() < 4 {
+        return Ok(());
+    }
+    let kind = u32::from_le_bytes(event[0..4].try_into().expect("4 bytes"));
+    let mut writer = writer
+        .lock()
+        .map_err(|_| io::Error::other("uhid writer poisoned"))?;
+    match kind {
+        UHID_GET_REPORT if event.len() >= 10 => {
+            let id = u32::from_le_bytes(event[4..8].try_into().expect("4 bytes"));
+            let report_number = event[8];
+            let reply = match report_number {
+                FEATURE_CALIBRATION => get_report_reply(id, Some(&features.calibration)),
+                FEATURE_PAIRING_INFO => get_report_reply(id, Some(&features.pairing)),
+                FEATURE_FIRMWARE_INFO => get_report_reply(id, Some(&features.firmware)),
+                _ => get_report_reply(id, None),
+            };
+            writer.write_all(&reply)?;
+        }
+        UHID_SET_REPORT if event.len() >= 10 => {
+            let id = u32::from_le_bytes(event[4..8].try_into().expect("4 bytes"));
+            writer.write_all(&set_report_reply(id))?;
+        }
+        UHID_OUTPUT | UHID_START | UHID_STOP | UHID_OPEN | UHID_CLOSE | UHID_DESTROY => {}
+        _ => {}
+    }
+    Ok(())
 }
 
 /// [`ReportSink`] backed by a real uhid device.
@@ -127,24 +166,13 @@ pub struct UhidSink {
 
 impl UhidSink {
     pub fn open(mac: [u8; 6]) -> io::Result<Self> {
-        let mut device = UhidDevice::open(mac)?;
-        // The kernel probes the new device immediately, including feature
-        // reports. Answer them even if the controller is not streaming yet.
-        for _ in 0..100 {
-            device.pump()?;
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-        Ok(Self { device })
+        Ok(Self {
+            device: UhidDevice::open(mac)?,
+        })
     }
 }
 
 impl ReportSink for UhidSink {
-    fn pump(&mut self) -> Result<(), BackendError> {
-        self.device
-            .pump()
-            .map_err(|error| BackendError::Other(format!("uhid: {error}")))
-    }
-
     fn send(&mut self, report: &[u8]) -> Result<(), BackendError> {
         self.device
             .send_input(report)

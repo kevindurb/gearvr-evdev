@@ -23,11 +23,14 @@ rejected.
 gearvr-cli mag-fit tumble.jsonl --out mag-calibration.toml
 ```
 
-The fitter uses the min/max method: the centre of each axis extent is the
-hard-iron offset, and each axis is scaled to the mean radius. It prints the
-centre, axis radii, diagonal soft iron, and the residual (relative standard
-deviation of the corrected field magnitude). A small residual means the field
-looks spherical after correction; a large one usually means poor coverage.
+The fitter solves the general ellipsoid equation: the centre gives the hard-iron
+offset and the eigenvectors/eigenvalues give a full symmetric soft-iron matrix,
+so a tilted ellipsoid is corrected as well as an axis-aligned one. It prints the
+centre, semi-axes, soft iron, and the residual (relative standard deviation of
+the corrected field magnitude). A small residual means the field looks spherical
+after correction. The default maximum residual is 0.15; a higher value is
+rejected rather than saved, which usually means the tumble missed orientations or
+passed near metal.
 
 Options:
 
@@ -37,6 +40,8 @@ Options:
   angle is slightly off.
 - `--min-samples <N>`: default 100.
 - `--min-range <COUNTS>`: minimum raw spread per axis, default 100.
+- `--max-residual <FRACTION>`: reject a fit above this corrected-field
+  variation, default 0.15.
 
 The command writes the profile only after the fit succeeds.
 
@@ -77,7 +82,8 @@ invertible; `meta.samples` and `meta.residual` must be present.
 ## Limitations
 
 - The fit assumes the field magnitude is constant and the tumble covers all
-  orientations. It does not model cross-axis soft iron.
+  orientations. It models a full ellipsoid (including cross-axis soft iron), but
+  cannot separate a nearby magnet from the Earth field.
 - The scale is inherited from the `~0.06 µT/LSB` figure and has not been
   independently derived.
 - The board rotation is a documented estimate, not measured per unit.

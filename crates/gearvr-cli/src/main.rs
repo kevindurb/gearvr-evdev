@@ -276,6 +276,10 @@ struct MagFitArgs {
     /// Minimum raw spread per axis; rejects a flat capture.
     #[arg(long, default_value_t = 100.0)]
     min_range: f32,
+
+    /// Maximum corrected-field variation; rejects a poor tumble.
+    #[arg(long, default_value_t = 0.15)]
+    max_residual: f32,
 }
 
 #[derive(Debug, Parser)]
@@ -982,6 +986,7 @@ fn mag_fit(args: MagFitArgs) -> Result<()> {
             board_rotation_deg: args.board_rotation,
             min_samples: args.min_samples,
             min_axis_range: args.min_range,
+            max_residual: args.max_residual,
         },
     )?;
 
