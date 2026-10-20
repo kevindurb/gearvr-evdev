@@ -21,8 +21,7 @@ a retail unit. Two hardware findings are recorded in
 [`docs/implementation.md`](docs/implementation.md): a transposed service UUID
 (now fixed) and the calibration record's still-unresolved semantic layout.
 
-Still open: gestures, magnetometer calibration, multi-hour sleep behavior, and
-the systemd service.
+Still open: gestures, magnetometer calibration, and multi-hour sleep behavior.
 
 See [`docs/implementation.md`](docs/implementation.md) for what is built and
 what the Deck validation actually showed, and

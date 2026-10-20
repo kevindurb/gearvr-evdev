@@ -34,25 +34,66 @@ Requirements and notes:
   touchpad. Reading the motion node with `evtest` as a non-root user needs an
   additional ACL; Steam reads the HID device directly and does not need it.
 - Do not run the DualSense backend and the evdev gamepad at the same time.
+- Steam's default desktop layout does not bind the DualSense touchpad click. In
+  **Settings → Controller → Desktop Layout → Edit Layout**, select the DualSense
+  and bind **Touchpad Click → Left Mouse Click**.
 - Rollback is omitting the flag: `--backend evdev` remains the default and
   creates only the `1209` devices.
 
 ## systemd user service
 
-Build/install `gearvr-cli` at `~/.local/bin/gearvr-cli` (or edit `ExecStart`),
-pair the controller first, then:
+Build and install the binary, pair the controller first, then:
 
 ```sh
-mkdir -p ~/.config/systemd/user
-cp systemd/gearvr.service ~/.config/systemd/user/
+cargo build --release -p gearvr-cli --features dualsense
+mkdir -p ~/.local/bin ~/.config/systemd/user
+cp target/release/gearvr-cli ~/.local/bin/
+cp packaging/systemd/gearvr.service ~/.config/systemd/user/
 systemctl --user daemon-reload
+systemd-analyze --user verify ~/.config/systemd/user/gearvr.service
 systemctl --user enable --now gearvr.service
 journalctl --user -u gearvr.service -f
 ```
 
-The service restarts on failure. A Bluetooth disconnect currently ends the
-session; `Restart=on-failure` reconnects a few seconds later. Pairing is a
-desktop-agent job, not the driver's:
+The unit runs `run --backend evdev --motion` from
+`~/.local/bin/gearvr-cli`. `enable` makes it start with the graphical login
+(user `default.target`). On a headless host, also run
+`loginctl enable-linger "$USER"`.
+
+The session supervisor owns reconnect, so a controller sleep or link drop no
+longer ends the service: it re-runs the handshake with bounded backoff.
+`Restart=on-failure` is only a safety net for a crashed process. Test both:
+
+```sh
+systemctl --user kill -s KILL gearvr.service   # systemd restarts it
+systemctl --user stop gearvr.service           # clean stop, virtual devices removed
+```
+
+### DualSense instead of evdev
+
+Use a drop-in so the packaged unit stays untouched:
+
+```sh
+mkdir -p ~/.config/systemd/user/gearvr.service.d
+cat > ~/.config/systemd/user/gearvr.service.d/dualsense.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=%h/.local/bin/gearvr-cli run --backend dualsense
+EOF
+systemctl --user daemon-reload
+systemctl --user restart gearvr.service
+```
+
+Verify with:
+
+```sh
+systemctl --user show -p ExecStart --value gearvr.service
+ls /sys/bus/hid/devices/ | grep 054C
+```
+
+## Pairing
+
+Pairing is a desktop-agent job, not the driver's:
 
 ```sh
 bluetoothctl

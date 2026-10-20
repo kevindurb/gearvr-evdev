@@ -55,11 +55,11 @@
 
 ## 7. Packaging, permissions, and service
 
-- [ ] 7.1 Add or confirm a udev rule for `/dev/uhid` access without weakening unrelated permissions; verify the rule syntax with `udevadm verify` and confirm it is ordered after seat/input rules where required.
-- [ ] 7.2 Update the systemd user unit to run the selected backend from the documented install path, wait for Bluetooth, and restart on failure; verify `systemd-analyze verify` accepts the unit.
-- [ ] 7.3 Update `packaging/README.md` with install, pair, trust, enable, stop, journal, and remove-and-repair steps; verify every command exists and the paths match the unit and udev files.
-- [ ] 7.4 Update `docs/implementation.md` with the new feature status and clearly label all hardware-unvalidated claims; verify the status table matches the tasks left unchecked.
-- [ ] 7.5 Run `cargo fmt --all --check`, `cargo test --workspace --all-features`, and `cargo clippy --workspace --all-targets --all-features -- -D warnings`; verify all pass.
+- [x] 7.1 Add or confirm a udev rule for `/dev/uhid` access without weakening unrelated permissions; verify the rule syntax with `udevadm verify` and confirm it is ordered after seat/input rules where required.
+- [x] 7.2 Update the systemd user unit to run the selected backend from the documented install path, wait for Bluetooth, and restart on failure; verify `systemd-analyze verify` accepts the unit.
+- [x] 7.3 Update `packaging/README.md` with install, pair, trust, enable, stop, journal, and remove-and-repair steps; verify every command exists and the paths match the unit and udev files.
+- [x] 7.4 Update `docs/implementation.md` with the new feature status and clearly label all hardware-unvalidated claims; verify the status table matches the tasks left unchecked.
+- [x] 7.5 Run `cargo fmt --all --check`, `cargo test --workspace --all-features`, and `cargo clippy --workspace --all-targets --all-features -- -D warnings`; verify all pass.
 
 ## 8. Hardware validation (blocked until a physical ET-YO324 is available)
 
@@ -75,8 +75,8 @@
 - [x] 8.4 Exercise at least ten sleep/wake or disconnect/reconnect cycles; verify the same virtual devices survive, inputs release, and a fresh handshake completes each time.
 - [x] 8.5 Verify Steam sees the evdev gamepad with the expected mapping and no stuck inputs; verify the gesture defaults are usable or tune the thresholds.
 - [x] 8.6 Verify Steam Input enumerates the virtual DualSense and exposes gyro; confirm continuous reports prevent timeout and that disabling the backend restores plain evdev behavior.
-- [ ] 8.7 Install and run the systemd user service on the Deck; verify start at login, restart after a failed session, journal output, and clean stop.
-- [ ] 8.8 Record the hardware results and any deviations in `docs/implementation.md`; verify every claim marked validated has an observed result.
+- [x] 8.7 Install and run the systemd user service on the Deck; verify start at login, restart after a failed session, journal output, and clean stop.
+- [x] 8.8 Record the hardware results and any deviations in `docs/implementation.md`; verify every claim marked validated has an observed result.
 
 ## 9. Integration verification
 

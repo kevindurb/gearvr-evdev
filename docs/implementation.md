@@ -230,6 +230,25 @@ work once Steam's DualSense desktop layout binds them (Touchpad Click → Left
 Mouse Click); the default layout leaves that unbound, which looks like a driver
 bug. Remaining: a long-session run and packaging the service.
 
+## systemd service validation (2026-10-20)
+
+Installed `gearvr-cli` at `~/.local/bin/gearvr-cli` and
+`packaging/systemd/gearvr.service` at `~/.config/systemd/user/`:
+
+- `systemd-analyze --user verify` passes (run with `XDG_RUNTIME_DIR` set).
+- `enable --now` started the service; it connected, streamed, and created
+  `event8`/`event18`.
+- `SIGKILL` on the main process was followed by an automatic restart with a new
+  PID; the new session connected and streamed.
+- `systemctl --user stop` left the unit inactive and removed both virtual nodes.
+- The documented DualSense drop-in changed `ExecStart`; the service then created
+  `0005:054C:0CE6` and no `1209` nodes.
+- `enable` persists across logout/login via `default.target`; no reboot was
+  performed.
+
+Normal sleep/wake disconnects are handled by the supervisor, not by
+`Restart=on-failure`.
+
 ## Not yet validated
 
 - Pairing-agent behavior, bonding persistence, reconnect after sleep, and
@@ -245,6 +264,5 @@ bug. Remaining: a long-session run and packaging the service.
 - Volume up/down bits were not exercised.
 - The virtual DualSense is enumerated by the kernel and Steam, and gyro works
   in a desktop layout. A long-session run and the systemd service remain.
-- The systemd user unit is in `packaging/systemd/gearvr.service`, but has not
-  been run on the Deck. It assumes the controller is already paired/trusted and
-  restarts the process after a Bluetooth disconnect.
+- The systemd service is validated, including the DualSense drop-in. A reboot
+  (as opposed to enablement) was not performed.

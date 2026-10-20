@@ -1,17 +1,19 @@
 [Unit]
 Description=Samsung Gear VR Controller userspace driver
 Documentation=https://github.com/kevindurb/gearvr-evdev
+# The supervisor retries while Bluetooth/BlueZ is unavailable, so no explicit
+# ordering is required. Starting after the system target is harmless.
 After=bluetooth.target
-Wants=bluetooth.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
-# Install gearvr-cli somewhere on PATH, or adjust this to the binary's path.
+# Install the binary at ~/.local/bin/gearvr-cli (see packaging/README.md).
 ExecStart=%h/.local/bin/gearvr-cli run --backend evdev --motion
-Environment=RUST_LOG=gearvr_cli=info,gearvr_ble=info
+Environment=RUST_LOG=gearvr_cli=info,gearvr_ble=info,gearvr_output=info
 Restart=on-failure
-RestartSec=5s
-StartLimitBurst=10
+RestartSec=3s
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
@@ -22,3 +24,11 @@ DeviceAllow=/dev/uhid rw
 
 [Install]
 WantedBy=default.target
+
+# To run the virtual DualSense instead, use a drop-in:
+#
+#   systemctl --user edit gearvr.service
+#
+#   [Service]
+#   ExecStart=
+#   ExecStart=%h/.local/bin/gearvr-cli run --backend dualsense
