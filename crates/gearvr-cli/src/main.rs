@@ -1125,7 +1125,7 @@ fn print_packet(data: &[u8], summary: bool) -> Result<()> {
                 record.serial_str()
             ),
             Packet::Calibration(record) => println!(
-                "calibration temp={}°C pad={:?}",
+                "calibration temp={:.2}°C pad={:?}",
                 record.temperature_c(),
                 record.pad_bits()
             ),

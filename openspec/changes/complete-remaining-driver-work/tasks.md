@@ -2,7 +2,7 @@
 
 ## 1. Protocol fixtures, calibration, and hostile input
 
-- [ ] 1.1 Add a reusable notification fixture format and fixtures for zero-, one-, and three-sample sensor packets; verify the decoder tests pass with the suffix at the correct variable offset.
+- [x] 1.1 Add a reusable notification fixture format and fixtures for zero-, one-, and three-sample sensor packets; verify the decoder tests pass with the suffix at the correct variable offset.
 - [ ] 1.2 Implement the 66-byte `0300` calibration decoder as eight signed 21-bit triples plus a little-endian temperature, with padding-bit and range validation; verify valid, bad-padding, and out-of-range tests pass.
 - [ ] 1.3 Decode both known settings record lengths and expose firmware bytes as ASCII and numeric values; verify the `QD4` firmware, short-record, and unknown-field tests pass.
 - [ ] 1.4 Add property/fuzz-style coverage that feeds arbitrary and truncated byte slices to the parser; verify no test panics or hangs and unknown packets remain classified.
@@ -64,9 +64,13 @@
 ## 8. Hardware validation (blocked until a physical ET-YO324 is available)
 
 > Leave these unchecked until each item has actually been exercised. Record the date, host, kernel, BlueZ version, and observed result.
+>
+> First session: 2026-10-20, `steamdeck`, kernel 7.2.8, BlueZ 5.87, unit
+> `2C:BA:BA:4F:00:14` firmware `QD4`. Results are recorded in
+> `docs/implementation.md`.
 
-- [ ] 8.1 Pair, trust, and connect the controller; verify `scan` finds it and `run --backend evdev` completes the `0800` → `08 00` → `0100` handshake.
-- [ ] 8.2 Capture real sensor, settings, and `0300` calibration notifications; add them as named fixtures and verify replay through `decode` matches the captured values.
+- [x] 8.1 Pair, trust, and connect the controller; verify `scan` finds it and `run --backend evdev` completes the `0800` → `08 00` → `0100` handshake.
+- [x] 8.2 Capture real sensor, settings, and `0300` calibration notifications; add them as named fixtures and verify replay through `decode` matches the captured values.
 - [ ] 8.3 Run the pose test and compare the candidate axis map with the default; verify nose-up, nose-down, left-side, and right-side signs match the documented frame.
 - [ ] 8.4 Exercise at least ten sleep/wake or disconnect/reconnect cycles; verify the same virtual devices survive, inputs release, and a fresh handshake completes each time.
 - [ ] 8.5 Verify Steam sees the evdev gamepad with the expected mapping and no stuck inputs; verify the gesture defaults are usable or tune the thresholds.

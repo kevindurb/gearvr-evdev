@@ -247,7 +247,7 @@ temperature:
 | 40 | 8 | gyroscope alignment/scale row X |
 | 48 | 8 | row Y |
 | 56 | 8 | row Z |
-| 64 | 2 | temperature at calibration time (°C, LE) |
+| 64 | 2 | temperature at calibration time (centi-°C, LE: `2500` = 25.00 °C) |
 
 Each 8-byte vec3 entry is claimed to be **big-endian 21-bit-per-axis** with one
 padding bit:
@@ -264,6 +264,12 @@ this record to raw sensor data and shown that it improves anything.** The Samsun
 APK calls these "bias" values. If you decode this and demonstrate that applying it
 reduces drift, that is a genuinely new result and the most valuable single
 contribution available in this space — see `open-questions.md`.
+
+**First real unit (2026-10-20, `2C:BA:BA:4F:00:14`, firmware `QD4`):** bit 0 is
+the only bit that is zero in all eight groups, confirming the padding bit is the
+LSB. The tail is `2500`, i.e. 25.00 °C. However, decoding groups 2–7 as two 3×3
+matrices yields no plausible alignment, so the semantic layout is still
+unresolved.
 
 ---
 

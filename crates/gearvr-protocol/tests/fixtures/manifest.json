@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "unit": "2C:BA:BA:4F:00:14",
+  "firmware": "QD4",
+  "captured": "2026-10-20",
+  "fixtures": [
+    {
+      "file": "ack-vr-mode.hex",
+      "kind": "ack",
+      "command": "0800",
+      "origin": "captured"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "touch_state": "NotTouching",
+      "buttons": 64,
+      "temperature_c": 17,
+      "battery": 69,
+      "mag": [
+        0,
+        0,
+        0
+      ],
+      "file": "sensor-idle.hex",
+      "kind": "sensor",
+      "samples": 3,
+      "t_us": 1552037,
+      "origin": "captured"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "touch_state": "NotTouching",
+      "buttons": 64,
+      "temperature_c": 17,
+      "battery": 69,
+      "mag": [
+        3240,
+        -7847,
+        -1235
+      ],
+      "file": "sensor-mag.hex",
+      "kind": "sensor",
+      "samples": 3,
+      "t_us": 1717265,
+      "origin": "captured"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "touch_state": "NotTouching",
+      "buttons": 1,
+      "temperature_c": 20,
+      "battery": 68,
+      "mag": [
+        3099,
+        -7186,
+        -209
+      ],
+      "file": "sensor-trigger.hex",
+      "kind": "sensor",
+      "samples": 3,
+      "t_us": 25632981,
+      "origin": "captured"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "touch_state": "NotTouching",
+      "buttons": 4,
+      "temperature_c": 20,
+      "battery": 68,
+      "mag": [
+        3022,
+        -7136,
+        -350
+      ],
+      "file": "sensor-back.hex",
+      "kind": "sensor",
+      "samples": 3,
+      "t_us": 39038738,
+      "origin": "captured"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "touch_state": "NotTouching",
+      "buttons": 2,
+      "temperature_c": 20,
+      "battery": 68,
+      "mag": [
+        3026,
+        -7149,
+        -350
+      ],
+      "file": "sensor-home.hex",
+      "kind": "sensor",
+      "samples": 3,
+      "t_us": 51908909,
+      "origin": "captured"
+    },
+    {
+      "x": 202,
+      "y": 146,
+      "touch_state": "Touching",
+      "buttons": 8,
+      "temperature_c": 20,
+      "battery": 68,
+      "mag": [
+        3067,
+        -6980,
+        -470
+      ],
+      "file": "sensor-click.hex",
+      "kind": "sensor",
+      "samples": 3,
+      "t_us": 64642021,
+      "origin": "captured"
+    },
+    {
+      "x": 204,
+      "y": 152,
+      "touch_state": "Touching",
+      "buttons": 64,
+      "temperature_c": 20,
+      "battery": 68,
+      "mag": [
+        3057,
+        -6997,
+        -433
+      ],
+      "file": "sensor-touch.hex",
+      "kind": "sensor",
+      "samples": 3,
+      "t_us": 63981798,
+      "origin": "captured"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "touch_state": "JustLifted",
+      "buttons": 64,
+      "temperature_c": 20,
+      "battery": 68,
+      "mag": [
+        3049,
+        -6992,
+        -445
+      ],
+      "file": "sensor-lift.hex",
+      "kind": "sensor",
+      "samples": 3,
+      "t_us": 65481051,
+      "origin": "captured"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "touch_state": "NotTouching",
+      "buttons": 64,
+      "temperature_c": 17,
+      "battery": 69,
+      "mag": [
+        0,
+        0,
+        0
+      ],
+      "file": "sensor-zero.hex",
+      "kind": "sensor",
+      "samples": 0,
+      "t_us": 1552037,
+      "origin": "derived"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "touch_state": "NotTouching",
+      "buttons": 64,
+      "temperature_c": 17,
+      "battery": 69,
+      "mag": [
+        0,
+        0,
+        0
+      ],
+      "file": "sensor-one.hex",
+      "kind": "sensor",
+      "samples": 1,
+      "t_us": 1552037,
+      "origin": "derived"
+    },
+    {
+      "file": "settings-68.hex",
+      "kind": "settings",
+      "origin": "captured",
+      "imu_interval_ms": 5,
+      "mag_interval_ms": 10,
+      "firmware": "QD4",
+      "model": "ET-YO324",
+      "serial": "RF7JB2ACG1D",
+      "button_mask": 63,
+      "touch_max": 320
+    },
+    {
+      "file": "calibration-66.hex",
+      "kind": "calibration",
+      "origin": "captured",
+      "temperature_centi_c": 2500,
+      "tentative_groups": [
+        [
+          -737,
+          42,
+          -333
+        ],
+        [
+          31,
+          -568,
+          143
+        ],
+        [
+          -1807,
+          18756,
+          35511
+        ],
+        [
+          -65639,
+          -4437,
+          -46842
+        ],
+        [
+          -39434,
+          37941,
+          6469
+        ],
+        [
+          -18918,
+          25215,
+          21373
+        ],
+        [
+          -58926,
+          1564,
+          -44591
+        ],
+        [
+          -48490,
+          32192,
+          -3236
+        ]
+      ]
+    }
+  ]
+}

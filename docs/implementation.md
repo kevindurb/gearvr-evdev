@@ -15,9 +15,10 @@ current state.
 | `gearvr-output` | Implemented | evdev/uinput gamepad, optional motion node, newline JSON, JSON/UDP. |
 | `gearvr-cli` | Implemented | `synth`, `decode`, `info`, `scan`, `doctor`, `capture`, `probe`, `replay`, and a live `run` loop. |
 
-`cargo test --workspace` currently runs 89 tests: 33 protocol unit tests, 4
-protocol property tests, 14 fusion, 19 BLE, 8 output, 4 core, and 7 CLI.
-`cargo clippy --workspace --all-targets -- -D warnings` is clean.
+`cargo test --workspace` currently runs 91 tests: 34 protocol unit tests, 1
+real-capture fixture test, 4 protocol property tests, 14 fusion, 19 BLE, 8
+output, 4 core, and 7 CLI. `cargo clippy --workspace --all-targets -- -D
+warnings` is clean.
 
 ## Protocol decisions that differ from the obvious implementation
 
@@ -122,23 +123,67 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=input
 ```
 
+## Physical controller validation (2026-10-20)
+
+Unit `2C:BA:BA:4F:00:14`, firmware `QD4`, model `ET-YO324`, serial
+`RF7JB2ACG1D`. Host: `steamdeck`, Bazzite 44, kernel 7.2.8, BlueZ 5.87. Raw
+traffic was recorded with `capture`/`probe`; representative packets are checked
+in under `crates/gearvr-protocol/tests/fixtures/`.
+
+Pairing used the documented `bluetoothctl` recipe. The unit reports
+Paired/Bonded/Trusted and a battery level in the standard `0x180F` service.
+
+- **Service UUID bug.** The first connection failed with "vendor service
+  missing": `VENDOR_SERVICE_UUID` had two transposed bytes and decoded to
+  `Ocutls T...` instead of `Oculus Threemote`. Fixed, with a byte-level
+  regression test. The service then resolved at
+  `service0030`, characteristics `char0031` (notify) and `char0034` (write with
+  response).
+- **Handshake timing.** `0800` → echo took **1.02 s** in the first session and
+  **1.51 s** in the second; `0100` was written 50–54 ms after each echo. A 3 s
+  timeout is required; a 1 s timeout would have failed the second session.
+- **Stream.** 66.9 packets/s, 3 samples per packet, 60 bytes. Sample-timestamp
+  medians were 4.825 ms (≈207 Hz), matching the 5 ms IMU interval.
+- **Buttons.** Trigger `0x01`, Home `0x02`, Back `0x04`, touchpad click `0x08`.
+  The idle bit `0x40` clears while a button is held and returns afterwards.
+  Volume up/down were not exercised.
+- **Touchpad.** All four `SS` states were observed; `JustLifted` appears for
+  exactly one packet. A circular drag reported x=32..265, y=35..308.
+- **Magnetometer.** Confirmed at packet offset 48 (suffix offset 0). The first
+  ~10 packets after streaming starts report zero, then values settle near
+  `(3240, -7845, -1240)` raw for this unit. That offset is unit-specific hard
+  iron, not an Earth-field reading.
+- **Gravity.** Resting touchpad-up on a desk: accel raw ≈
+  `(27..77, 451..454, 2040..2042)`, so `+Z ≈ +1 g`, consistent with +Z out of
+  the touchpad face. The ~0.22 g on Y means the case rests tilted or the axis
+  map still needs the four-pose check.
+- **Gyro bias.** At rest `(4, -51, 14)` raw, a small constant bias the online
+  estimator can learn.
+- **Settings (`05 00`).** 68 bytes: imu 5 ms, mag 10 ms, button mask `0x3f`,
+  touch 320×320, firmware `QD4`, model `ET-YO324`, serial `RF7JB2ACG1D`.
+- **Calibration (`03 00`).** 66 bytes. The last two bytes are `2500` = 25.00 °C,
+  so the temperature is centi-degrees, not whole degrees. Bit 0 is the only bit
+  that is zero in all eight groups, which confirms the LSB is the padding bit.
+  Decoding the groups as two 3×3 matrices does not produce a plausible
+  alignment (row norms 0.58–1.23 at 2^16, no diagonal dominance), so the
+  semantic layout is still unresolved. This unit's decoded groups are pinned in
+  the fixture test.
+
 ## Not yet validated
 
-- No physical ET-YO324 is available yet. The `bluez` transport compiles and the
-  `scan`/`doctor`/`capture`/`probe` commands run, but connect/notify/write has
-  not been exercised against a controller. `docs/bringup.md` is the first-contact
-  procedure.
-- The JSONL capture format and `replay` are covered by unit tests, but no real
-  controller traffic has been recorded yet.
 - Pairing-agent behavior, bonding persistence, reconnect after sleep, and
   connection-parameter requests are untested.
-- Axis convention and sign are still not settled; the axis map is configurable,
-  but the default is a guess from the packet docs.
+- The full four-pose axis check has not been run; only the resting gravity
+  vector is known.
+- Sleep/wake timing has not been measured, and auto-reconnect after the
+  controller's inactivity sleep has not been exercised.
 - Touchpad gestures (swipe/tap) are not synthesized; only raw position and
   click are exposed.
-- Magnetometer calibration and the `0300` calibration blob remain undecoded.
-- A `uhid` DualSense backend does not exist yet. It is still the only route to
-  Steam-side gyro.
+- Magnetometer scale and mounting rotation are still unverified. The `0300`
+  calibration record is captured, but its semantic layout is unresolved.
+- Volume up/down bits were not exercised.
+- Steam has only been tested against a synthetic pad. A real-input session and
+  the `uhid` DualSense backend (the only route to Steam-side gyro) remain.
 - The systemd user unit is in `packaging/systemd/gearvr.service`, but has not
   been run on the Deck. It assumes the controller is already paired/trusted and
   restarts the process after a Bluetooth disconnect.

@@ -19,9 +19,17 @@ impl CalibrationRecord {
         &self.bytes
     }
 
-    /// Temperature at calibration time, last two bytes, little-endian i16.
-    pub const fn temperature_c(&self) -> i16 {
+    /// Raw temperature at calibration time, last two bytes, little-endian.
+    ///
+    /// Units are hundredths of a degree Celsius: the first physical unit
+    /// reports `2500`, i.e. 25.00 °C.
+    pub const fn temperature_centi_c(&self) -> i16 {
         i16::from_le_bytes([self.bytes[64], self.bytes[65]])
+    }
+
+    /// Temperature at calibration time in degrees Celsius.
+    pub fn temperature_c(&self) -> f32 {
+        f32::from(self.temperature_centi_c()) / 100.0
     }
 
     /// Tentative decode of eight packed 21-bit vec3 entries.
@@ -109,11 +117,12 @@ mod tests {
         for (i, v) in values.iter().enumerate() {
             bytes[i * 8..i * 8 + 8].copy_from_slice(&pack_group(v[0], v[1], v[2], false));
         }
-        bytes[64..66].copy_from_slice(&25i16.to_le_bytes());
+        bytes[64..66].copy_from_slice(&2500i16.to_le_bytes());
         let record = CalibrationRecord::from_bytes(&bytes).expect("valid");
         assert_eq!(record.decode_21bit_tentative(), values);
         assert_eq!(record.pad_bits(), [false; 8]);
-        assert_eq!(record.temperature_c(), 25);
+        assert_eq!(record.temperature_centi_c(), 2500);
+        assert_eq!(record.temperature_c(), 25.0);
     }
 
     #[test]

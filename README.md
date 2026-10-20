@@ -14,14 +14,16 @@ No kernel module, no patched kernel, no vendor SDK.
 
 ## Status
 
-**Working skeleton, validated without the physical controller.** The protocol
-parser, 6-DOF fusion, command sequencer, evdev/JSON/UDP outputs, and CLI are
-implemented. On a Steam Deck, a synthetic uinput gamepad was enumerated by udev,
-read by `evtest`/`jstest`, and accepted by Steam Input as a generic controller.
+**Validated against a physical ET-YO324 on a Steam Deck.** Pairing, the
+`0800` → echo → `0100` handshake, ~67 packets/s streaming, buttons, touchpad,
+raw motion, the settings record, and the 66-byte calibration record all work on
+a retail unit. Two hardware findings are recorded in
+[`docs/implementation.md`](docs/implementation.md): a transposed service UUID
+(now fixed) and the calibration record's still-unresolved semantic layout.
 
-The live BlueZ transport (`scan`, `doctor`, `run`) is implemented but has not
-been exercised against a real ET-YO324 yet. The controller is required to settle
-the axis convention, pairing/reconnect behavior, and actual handshake timing.
+Still open: the four-pose axis check, sleep/reconnect behavior, gestures,
+magnetometer scale, and Steam-side gyro (which needs the `uhid` DualSense
+backend).
 
 See [`docs/implementation.md`](docs/implementation.md) for what is built and
 what the Deck validation actually showed, and

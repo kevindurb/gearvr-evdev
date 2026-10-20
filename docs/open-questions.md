@@ -38,6 +38,37 @@ the 21-bit signed range and the pad bit should always be 0. Then check whether t
 8 "rows" form two 3×3 matrices that are approximately rotation-like/scale-like.
 Then apply and measure drift against an unaided run.
 
+### First real dump (2026-10-20)
+
+Unit `2C:BA:BA:4F:00:14`, firmware `QD4`, 25.00 °C at calibration:
+
+```
+ffe8f8000abffd66 0000ffff7200011e ffc788125101156e f7fccffbaafe920c
+fb2fb0250d40328a fdb0d0189fc0a6fa f8ce9001873ea3a2 fa14b01f703fe6b8
+```
+
+What the bytes settle:
+
+- The last two bytes are `2500`, i.e. 25.00 °C. Temperature is centi-degrees.
+- Bit 0 is the **only** bit that is zero in all eight groups. The padding bit is
+  therefore the LSB of each 8-byte group, as the hypothesis says.
+
+What they do not settle: decoding the groups as `X:21 | Y:21 | Z:21 | pad:1`
+gives
+
+```
+[-737, 42, -333]        [31, -568, 143]
+[-1807, 18756, 35511]   [-65639, -4437, -46842]   [-39434, 37941, 6469]
+[-18918, 25215, 21373]  [-58926, 1564, -44591]    [-48490, 32192, -3236]
+```
+
+With a 2^16 scale the last six vectors have row norms 0.58–1.23 and no diagonal
+dominance, so they are not two rotation-like/alignment matrices as assumed. The
+bit packing is supported; the *semantic* grouping is not. Next step is the same
+dump from at least two more units, and a search over fixed-point scales and
+axis/row interleavings that makes the six vectors coherent. Do not apply this
+record to fusion yet.
+
 ## 2. Exact IMU part number
 
 Sensitivity gives it away as an ST 6-axis at ±16 g / ±2000 dps (2048 LSB/g,
@@ -63,6 +94,12 @@ single contact.
 `~0.06 µT/LSB` is a number inherited from jsyang and carried forward by everyone;
 it has never been independently derived. The hard-iron offset is large
 (X ≈ +6000 raw) and unit-specific.
+
+**First unit (2026-10-20, `2C:BA:BA:4F:00:14`):** the magnetometer settles near
+`(3240, -7845, -1240)` raw after ~10 zero packets, so this unit's hard iron is
+about `(-3240, +7845, +1240)` if the field is treated as zero-mean. That is
+different from the inherited X ≈ +6000 figure, confirming it is unit-specific.
+The scale still cannot be derived without a known field.
 
 The −30° board-rotation correction is an empirically fitted constant from
 `cwig`, derived from one unit. Whether 30° is a design value (a nice round angle,
@@ -90,8 +127,12 @@ remap and the first is describing the final convention, but the sign flips
 cyclic-ish (Y,X swap plus negation), which is a rotation combined with a
 reflection unless one of the signs is different from what is written.
 
-**Status:** the driver has a configurable axis map (`gearvr-fusion`), but the
-default is still the documented guess. This remains a hardware task.
+**Status:** partially measured (2026-10-20). With the controller resting
+touchpad-up on a desk, raw accel was ≈ `(27..77, 451..454, 2040..2042)`: the
+`+Z` axis carries +1 g, consistent with +Z out of the touchpad face. The
+non-zero Y component (~0.22 g) is either the case resting at a slight tilt or an
+axis/scale issue. The gyro at rest read `(4, -51, 14)` raw. The four 90° pose
+rotations have not been performed, so X/Y signs are still unconfirmed.
 
 **Concrete plan:** with the driver running, hold the controller in a known pose
 (flat on the desk, pointing at a wall) and log raw accel. Gravity alone resolves
@@ -112,6 +153,9 @@ Open questions:
 - The DA14681's own IMU sample interval from the settings record is **5 ms**
   (~200 Hz), matching the observed ~206 Hz. So we are probably already at the
   device's internal limit, and 68 pkt/s is the ceiling. Worth confirming.
+- **Measured (2026-10-20):** 66.9 packets/s with 3 samples per packet, median
+  inter-sample timestamp delta 4.825 ms (≈207 Hz). Handshake `0800` echo latency
+  was 1.02 s and 1.51 s in two sessions.
 - The 30-second disconnect-if-parameters-not-negotiated behaviour has been
   observed but the exact trigger conditions are unclear.
 
