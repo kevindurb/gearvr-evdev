@@ -57,6 +57,9 @@ the calibrated field applies a gentle **yaw-only** correction: pitch and roll
 stay with Madgwick, and a physical yaw is still tracked by the gyro. The world
 heading is anchored at the first magnetometer sample after startup.
 
+To use it from the systemd service, add the same flags to the drop-in
+`ExecStart` described in `packaging/README.md`.
+
 `--marg` without `--mag-calibration` is an error. A corrupt, unvalidated, or
 version-mismatched profile is rejected at load time; the driver exits with the
 parse/validation error rather than silently fusing bad data.

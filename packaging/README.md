@@ -84,6 +84,10 @@ systemctl --user daemon-reload
 systemctl --user restart gearvr.service
 ```
 
+If you have a magnetometer profile, add `--mag-calibration
+%h/gearvr-captures/mag-calibration.toml --marg` to the `ExecStart` line.
+Without it the service runs the same DualSense path in 6-DOF mode.
+
 Verify with:
 
 ```sh
