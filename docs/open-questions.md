@@ -127,18 +127,20 @@ remap and the first is describing the final convention, but the sign flips
 cyclic-ish (Y,X swap plus negation), which is a rotation combined with a
 reflection unless one of the signs is different from what is written.
 
-**Status:** partially measured (2026-10-20). With the controller resting
-touchpad-up on a desk, raw accel was ≈ `(27..77, 451..454, 2040..2042)`: the
-`+Z` axis carries +1 g, consistent with +Z out of the touchpad face. The
-non-zero Y component (~0.22 g) is either the case resting at a slight tilt or an
-axis/scale issue. The gyro at rest read `(4, -51, 14)` raw. The four 90° pose
-rotations have not been performed, so X/Y signs are still unconfirmed.
+**Status: resolved (2026-10-20).** A four-pose test on a physical unit
+(`2C:BA:BA:4F:00:14`, firmware `QD4`) confirms the dennisonbertram frame for the
+raw sensor data:
 
-**Concrete plan:** with the driver running, hold the controller in a known pose
-(flat on the desk, pointing at a wall) and log raw accel. Gravity alone resolves
-Z. Then rotate 90° about each axis to resolve X and Y. This takes 20 minutes and
-should be step one of implementation because every downstream fusion result
-depends on it.
+| Pose | Raw accel |
+| --- | --- |
+| flat, touchpad up | `(21, 449, 2037)` → `+Z ≈ +1 g` |
+| trigger end up | `(225, 2034, -56)` → `+Y` is toward the trigger |
+| left edge down | `(2044, 192, -112)` → `+X` is right |
+
+Gyro signs follow the right-hand rule: nose-up is `+X`, left-edge-down is `+Y`,
+and yaw left is `+Z`. The raw frame is already the canonical frame, so the
+default identity map is correct. uutzinger's permute describes a different
+convention (x-forward / y-east / z-down), not different hardware wiring.
 
 ## 6. What "VR Mode" actually negotiates, and whether rate can exceed 68 pkt/s
 

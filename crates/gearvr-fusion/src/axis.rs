@@ -1,10 +1,10 @@
 //! Configurable axis mapping between the raw sensor frame and the frame used
 //! by fusion and the motion node.
 //!
-//! The documented hardware convention is right-handed:
+//! The hardware convention was confirmed on a physical unit (2026-10-20):
 //! `+X = right`, `+Y = forward (toward the trigger)`, `+Z = out of the touchpad
-//! face`. `open-questions.md` records a conflicting raw-frame description, so
-//! this mapping is deliberately data, not hardcoded arithmetic.
+//! face`, with gyro signs following the right-hand rule. The mapping stays
+//! configurable for experimenters even though the default is identity.
 
 use glam::Vec3;
 

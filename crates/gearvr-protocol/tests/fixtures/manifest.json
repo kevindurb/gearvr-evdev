@@ -249,6 +249,176 @@
           -3236
         ]
       ]
+    },
+    {
+      "file": "sensor-flat.hex",
+      "kind": "sensor",
+      "origin": "captured",
+      "samples": 3,
+      "buttons": 64,
+      "touch_state": "NotTouching",
+      "x": 0,
+      "y": 0,
+      "temperature_c": 20,
+      "battery": 67,
+      "mag": [
+        3074,
+        -7921,
+        -1241
+      ],
+      "accel": [
+        [
+          25,
+          454,
+          2037
+        ],
+        [
+          20,
+          448,
+          2037
+        ],
+        [
+          22,
+          450,
+          2033
+        ]
+      ]
+    },
+    {
+      "file": "sensor-nose-up.hex",
+      "kind": "sensor",
+      "origin": "captured",
+      "samples": 3,
+      "buttons": 64,
+      "touch_state": "NotTouching",
+      "x": 0,
+      "y": 0,
+      "temperature_c": 20,
+      "battery": 67,
+      "mag": [
+        3363,
+        -7691,
+        3
+      ],
+      "accel": [
+        [
+          236,
+          2034,
+          -34
+        ],
+        [
+          234,
+          2034,
+          -30
+        ],
+        [
+          232,
+          2032,
+          -29
+        ]
+      ]
+    },
+    {
+      "file": "sensor-nose-down.hex",
+      "kind": "sensor",
+      "origin": "captured",
+      "samples": 3,
+      "buttons": 64,
+      "touch_state": "NotTouching",
+      "x": 0,
+      "y": 0,
+      "temperature_c": 20,
+      "battery": 67,
+      "mag": [
+        3169,
+        -7021,
+        -1162
+      ],
+      "accel": [
+        [
+          -117,
+          -2069,
+          69
+        ],
+        [
+          -121,
+          -2068,
+          64
+        ],
+        [
+          -124,
+          -2074,
+          60
+        ]
+      ]
+    },
+    {
+      "file": "sensor-roll-left.hex",
+      "kind": "sensor",
+      "origin": "captured",
+      "samples": 3,
+      "buttons": 64,
+      "touch_state": "NotTouching",
+      "x": 0,
+      "y": 0,
+      "temperature_c": 20,
+      "battery": 67,
+      "mag": [
+        2658,
+        -7873,
+        -401
+      ],
+      "accel": [
+        [
+          2044,
+          193,
+          -75
+        ],
+        [
+          2053,
+          193,
+          -77
+        ],
+        [
+          2048,
+          193,
+          -68
+        ]
+      ]
+    },
+    {
+      "file": "sensor-roll-right.hex",
+      "kind": "sensor",
+      "origin": "captured",
+      "samples": 3,
+      "buttons": 64,
+      "touch_state": "NotTouching",
+      "x": 0,
+      "y": 0,
+      "temperature_c": 20,
+      "battery": 67,
+      "mag": [
+        2751,
+        -7893,
+        -1163
+      ],
+      "accel": [
+        [
+          -2036,
+          184,
+          -160
+        ],
+        [
+          -2034,
+          181,
+          -160
+        ],
+        [
+          -2035,
+          180,
+          -161
+        ]
+      ]
     }
   ]
 }

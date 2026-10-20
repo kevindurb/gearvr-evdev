@@ -43,6 +43,9 @@ struct Fixture {
     battery: u8,
     #[serde(default)]
     mag: [i16; 3],
+    /// Per-sample accelerometer values, when the fixture is an axis pose.
+    #[serde(default)]
+    accel: Vec<[i16; 3]>,
     #[serde(default)]
     imu_interval_ms: u32,
     #[serde(default)]
@@ -149,6 +152,13 @@ fn captured_packets_decode_as_recorded() {
                     fixture.file
                 );
                 assert_eq!(suffix.battery_percent, fixture.battery, "{}", fixture.file);
+                if !fixture.accel.is_empty() {
+                    let samples: Vec<_> = sensor.samples().collect();
+                    assert_eq!(samples.len(), fixture.accel.len(), "{}", fixture.file);
+                    for (sample, expected) in samples.iter().zip(&fixture.accel) {
+                        assert_eq!(&sample.accel, expected, "{}", fixture.file);
+                    }
+                }
             }
             "settings" => {
                 let record = SettingsRecord::from_bytes(&bytes).expect("settings record length");

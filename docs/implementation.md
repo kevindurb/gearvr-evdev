@@ -153,12 +153,26 @@ Paired/Bonded/Trusted and a battery level in the standard `0x180F` service.
   ~10 packets after streaming starts report zero, then values settle near
   `(3240, -7845, -1240)` raw for this unit. That offset is unit-specific hard
   iron, not an Earth-field reading.
-- **Gravity.** Resting touchpad-up on a desk: accel raw ≈
-  `(27..77, 451..454, 2040..2042)`, so `+Z ≈ +1 g`, consistent with +Z out of
-  the touchpad face. The ~0.22 g on Y means the case rests tilted or the axis
-  map still needs the four-pose check.
+- **Gravity and axis frame (four-pose test).** Confirmed the documented
+  right-handed frame:
+  - flat touchpad-up: `(21, 449, 2037)`, so `+Z ≈ +1 g` (out of the pad face);
+  - trigger end raised: `(225, 2034, -56)`, so `+Y` points toward the trigger;
+  - left edge down: `(2044, 192, -112)`, so `+X` points right;
+  - nose-up transition: gyro `+X`; left-edge-down: gyro `+Y`; yaw left: gyro
+    `+Z`, all matching the right-hand rule.
+  The raw sensor frame is already the canonical frame, so
+  `AxisConfig::DOCUMENTED` (identity) is correct and needs no remap.
 - **Gyro bias.** At rest `(4, -51, 14)` raw, a small constant bias the online
   estimator can learn.
+- **evdev and Steam.** `evtest` recorded two clean `BTN_SOUTH` press/release
+  pairs from the trigger and declared `BTN_SELECT`, `BTN_MODE`, and
+  `BTN_THUMBL`. During the same real-input session Steam logged
+  `Product: Gear VR Controller` and generated
+  `a:b0,back:b1,guide:b2,leftstick:b3,leftx:a0,lefty:a1`.
+- **Idle sleep (informal).** The controller dropped the link after roughly 3.5
+  minutes without button activity and reconnected on the next wake. This matches
+  the documented inactivity sleep, but ten cycles have not been measured yet
+  (task 8.4).
 - **Settings (`05 00`).** 68 bytes: imu 5 ms, mag 10 ms, button mask `0x3f`,
   touch 320×320, firmware `QD4`, model `ET-YO324`, serial `RF7JB2ACG1D`.
 - **Calibration (`03 00`).** 66 bytes. The last two bytes are `2500` = 25.00 °C,
@@ -173,17 +187,15 @@ Paired/Bonded/Trusted and a battery level in the standard `0x180F` service.
 
 - Pairing-agent behavior, bonding persistence, reconnect after sleep, and
   connection-parameter requests are untested.
-- The full four-pose axis check has not been run; only the resting gravity
-  vector is known.
-- Sleep/wake timing has not been measured, and auto-reconnect after the
-  controller's inactivity sleep has not been exercised.
+- Sleep/wake timing has not been measured over ten cycles, and auto-reconnect
+  after the controller's inactivity sleep has not been exercised repeatedly.
 - Touchpad gestures (swipe/tap) are not synthesized; only raw position and
-  click are exposed.
+  click are exposed. The defaults remain off.
 - Magnetometer scale and mounting rotation are still unverified. The `0300`
   calibration record is captured, but its semantic layout is unresolved.
 - Volume up/down bits were not exercised.
-- Steam has only been tested against a synthetic pad. A real-input session and
-  the `uhid` DualSense backend (the only route to Steam-side gyro) remain.
+- A `uhid` DualSense backend does not exist; it is still the only route to
+  Steam-side gyro.
 - The systemd user unit is in `packaging/systemd/gearvr.service`, but has not
   been run on the Deck. It assumes the controller is already paired/trusted and
   restarts the process after a Bluetooth disconnect.
