@@ -1,5 +1,6 @@
 //! Output backends.
 
+pub mod dualsense;
 pub mod evdev_gamepad;
 pub mod json;
 

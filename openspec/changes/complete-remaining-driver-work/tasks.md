@@ -39,7 +39,7 @@
 
 ## 5. Output contracts and periodic backend ticks
 
-- [ ] 5.1 Add a default no-op periodic tick and interval hint to the backend interface and update every backend; verify the workspace compiles and existing backend tests still pass.
+- [x] 5.1 Add a default no-op periodic tick and interval hint to the backend interface and update every backend; verify the workspace compiles and existing backend tests still pass.
 - [ ] 5.2 Verify the JSON and UDP contracts with tests for exactly one object per sensor packet, orientation absent before fusion, machine-readable stdout, and datagram delivery to a local receiver.
 - [ ] 5.3 Verify stable gamepad and motion-node identity across reconnect and the reset behavior on disconnect; add an integration-style fake-backend test if the current tests do not cover it.
 - [ ] 5.4 Document the JSON schema, UDP behavior, motion-node axes/ranges, and default identity in `README.md` and `docs/linux-integration.md`; verify each documented field is emitted by a test.

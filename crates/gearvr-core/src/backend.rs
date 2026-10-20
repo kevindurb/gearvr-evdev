@@ -1,5 +1,7 @@
 //! Output backend trait.
 
+use std::time::Duration;
+
 use crate::state::ControllerState;
 
 #[derive(Debug, thiserror::Error)]
@@ -19,4 +21,15 @@ pub trait Backend: Send {
     fn on_connect(&mut self, state: &ControllerState) -> Result<(), BackendError>;
     fn on_state(&mut self, state: &ControllerState) -> Result<(), BackendError>;
     fn on_disconnect(&mut self, state: &ControllerState) -> Result<(), BackendError>;
+
+    /// Interval at which the backend wants `on_tick` even when no sensor packet
+    /// arrives. Continuous-report backends (DualSense) use this; evdev does not.
+    fn tick_interval(&self) -> Option<Duration> {
+        None
+    }
+
+    /// Periodic callback, driven by the session supervisor while connected.
+    fn on_tick(&mut self, _state: &ControllerState) -> Result<(), BackendError> {
+        Ok(())
+    }
 }

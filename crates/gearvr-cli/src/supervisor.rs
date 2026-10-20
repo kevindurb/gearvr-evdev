@@ -221,6 +221,13 @@ impl<C: Connector> LiveSession<C> {
         let events = sequencer.start(Duration::ZERO);
         self.apply(link, &events).await?;
 
+        // Continuous-report backends need a cadence independent of packets.
+        let mut ticker = self.backend.tick_interval().map(|interval| {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            ticker
+        });
+
         loop {
             if *shutdown.borrow() {
                 let events = sequencer.stop();
@@ -270,6 +277,9 @@ impl<C: Connector> LiveSession<C> {
                     self.apply(link, &events).await?;
                 }
                 _ = tokio::time::sleep(wait) => {}
+                _ = next_tick(&mut ticker) => {
+                    self.backend.on_tick(&self.state).context("backend tick")?;
+                }
             }
 
             let events = sequencer.poll(start.elapsed());
@@ -387,6 +397,16 @@ fn past(deadline: Option<Instant>) -> bool {
     deadline
         .map(|deadline| Instant::now() >= deadline)
         .unwrap_or(false)
+}
+
+/// Resolves on the next backend tick, or never when no interval was requested.
+async fn next_tick(ticker: &mut Option<tokio::time::Interval>) {
+    match ticker {
+        Some(ticker) => {
+            ticker.tick().await;
+        }
+        None => std::future::pending().await,
+    }
 }
 
 #[cfg(feature = "bluez")]
@@ -589,6 +609,76 @@ mod tests {
                 Command::SENSOR_MODE,
             ]
         );
+    }
+
+    struct TickingBackend {
+        ticks: Arc<AtomicUsize>,
+    }
+
+    impl Backend for TickingBackend {
+        fn on_connect(&mut self, _state: &ControllerState) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        fn on_state(&mut self, _state: &ControllerState) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        fn on_disconnect(&mut self, _state: &ControllerState) -> Result<(), BackendError> {
+            Ok(())
+        }
+
+        fn tick_interval(&self) -> Option<Duration> {
+            Some(Duration::from_millis(2))
+        }
+
+        fn on_tick(&mut self, _state: &ControllerState) -> Result<(), BackendError> {
+            self.ticks.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    struct PendingLink;
+
+    impl Link for PendingLink {
+        fn write_command<'a>(&'a mut self, _command: Command) -> CommandFuture<'a> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn next_packet<'a>(&'a mut self) -> PacketFuture<'a> {
+            Box::pin(async { std::future::pending::<Result<Vec<u8>, TransportError>>().await })
+        }
+
+        fn disconnect(self: Box<Self>) -> DisconnectFuture {
+            Box::pin(async {})
+        }
+    }
+
+    struct PendingConnector;
+
+    impl Connector for PendingConnector {
+        fn connect<'a>(&'a mut self) -> ConnectFuture<'a> {
+            Box::pin(async { Ok(Box::new(PendingLink) as Box<dyn Link>) })
+        }
+    }
+
+    #[tokio::test]
+    async fn backend_ticks_fire_without_sensor_packets() {
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let mut session = LiveSession::new(
+            PendingConnector,
+            Box::new(TickingBackend {
+                ticks: ticks.clone(),
+            }),
+            None,
+            SessionConfig::default(),
+        );
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let deadline = Some(Instant::now() + Duration::from_millis(40));
+        session.run(shutdown_rx, deadline).await.unwrap();
+
+        let count = ticks.load(Ordering::SeqCst);
+        assert!(count >= 3, "expected repeated ticks, got {count}");
     }
 
     #[test]

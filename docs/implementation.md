@@ -12,12 +12,12 @@ current state.
 | `gearvr-core` | Implemented | `ControllerState`, link state, serde mirror types, `Backend` trait. |
 | `gearvr-fusion` | Implemented | Configurable axis map, stationary gyro-bias estimator, 6-DOF Madgwick. |
 | `gearvr-ble` | Implemented (hardware untested) | Pure command sequencer plus fake transport; feature-gated `bluez-async` transport for scan/connect/notify/write. |
-| `gearvr-output` | Implemented | evdev/uinput gamepad, optional motion node, newline JSON, JSON/UDP. |
+| `gearvr-output` | Implemented | evdev/uinput gamepad, optional motion node, newline JSON, JSON/UDP, and a pure DualSense Bluetooth report builder. |
 | `gearvr-cli` | Implemented | `synth`, `decode`, `info`, `scan`, `doctor`, `capture`, `probe`, `replay`, a reconnecting session supervisor, and a live `run` loop. |
 
-`cargo test --workspace` currently runs 93 tests: 34 protocol unit tests, 1
-real-capture fixture test, 4 protocol property tests, 14 fusion, 19 BLE, 8
-output, 4 core, and 9 CLI. `cargo clippy --workspace --all-targets -- -D
+`cargo test --workspace` currently runs 101 tests: 34 protocol unit tests, 1
+real-capture fixture test, 4 protocol property tests, 14 fusion, 19 BLE, 15
+output, 4 core, and 10 CLI. `cargo clippy --workspace --all-targets -- -D
 warnings` is clean.
 
 ## Protocol decisions that differ from the obvious implementation
@@ -190,6 +190,21 @@ Paired/Bonded/Trusted and a battery level in the standard `0x180F` service.
   semantic layout is still unresolved. This unit's decoded groups are pinned in
   the fixture test.
 
+## Virtual DualSense progress (2026-10-20)
+
+`gearvr-output::dualsense` builds the 78-byte Bluetooth input report and its
+CRC-32. Tests cover the CRC vector, report shape, button bits, touch
+coordinates, gyro/accel scaling, battery, and the sequence counter. The periodic
+tick is now part of the backend contract (`tick_interval`/`on_tick`) and is
+driven by the supervisor, so a backend can report continuously without waiting
+for a sensor packet.
+
+Not implemented yet: the uhid transport, feature-report responses (`0x05`
+calibration, `0x09` pairing info, `0x20` firmware info), CLI selection, and
+Steam validation. The published `uhid-virt`/`uhid-sys` crates need libclang 13
+for bindgen and `tokio-linux-uhid` targets tokio 0.1, so the transport will talk
+to `/dev/uhid` through `libc` under a `dualsense` feature instead.
+
 ## Not yet validated
 
 - Pairing-agent behavior, bonding persistence, reconnect after sleep, and
@@ -203,8 +218,8 @@ Paired/Bonded/Trusted and a battery level in the standard `0x180F` service.
 - Magnetometer scale and mounting rotation are still unverified. The `0300`
   calibration record is captured, but its semantic layout is unresolved.
 - Volume up/down bits were not exercised.
-- A `uhid` DualSense backend does not exist; it is still the only route to
-  Steam-side gyro.
+- The DualSense has a tested report builder but no transport yet; the `uhid`
+  path, feature reports, and Steam-side gyro remain unvalidated.
 - The systemd user unit is in `packaging/systemd/gearvr.service`, but has not
   been run on the Deck. It assumes the controller is already paired/trusted and
   restarts the process after a Bluetooth disconnect.
