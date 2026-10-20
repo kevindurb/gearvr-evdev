@@ -74,7 +74,7 @@
 - [x] 8.3 Run the pose test and compare the candidate axis map with the default; verify nose-up, nose-down, left-side, and right-side signs match the documented frame.
 - [x] 8.4 Exercise at least ten sleep/wake or disconnect/reconnect cycles; verify the same virtual devices survive, inputs release, and a fresh handshake completes each time.
 - [x] 8.5 Verify Steam sees the evdev gamepad with the expected mapping and no stuck inputs; verify the gesture defaults are usable or tune the thresholds.
-- [ ] 8.6 Verify Steam Input enumerates the virtual DualSense and exposes gyro; confirm continuous reports prevent timeout and that disabling the backend restores plain evdev behavior.
+- [x] 8.6 Verify Steam Input enumerates the virtual DualSense and exposes gyro; confirm continuous reports prevent timeout and that disabling the backend restores plain evdev behavior.
 - [ ] 8.7 Install and run the systemd user service on the Deck; verify start at login, restart after a failed session, journal output, and clean stop.
 - [ ] 8.8 Record the hardware results and any deviations in `docs/implementation.md`; verify every claim marked validated has an observed result.
 

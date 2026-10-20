@@ -15,8 +15,8 @@ current state.
 | `gearvr-output` | Implemented | evdev/uinput gamepad, optional motion node, newline JSON, JSON/UDP, and an opt-in uhid DualSense backend. |
 | `gearvr-cli` | Implemented | `synth`, `decode`, `info`, `scan`, `doctor`, `capture`, `probe`, `replay`, a reconnecting session supervisor, and a live `run` loop. |
 
-`cargo test --workspace` currently runs 112 tests: 34 protocol unit tests, 1
-real-capture fixture test, 4 protocol property tests, 14 fusion, 19 BLE, 25
+`cargo test --workspace` currently runs 114 tests: 34 protocol unit tests, 1
+real-capture fixture test, 4 protocol property tests, 14 fusion, 19 BLE, 27
 output, 4 core, and 11 CLI. `cargo clippy --workspace --all-targets -- -D
 warnings` is clean.
 
@@ -205,6 +205,13 @@ gearvr-cli run 'Gear VR' --backend dualsense
 - Trigger produced `BTN_TR2`, Home `BTN_MODE`, and Back `BTN_SELECT`. The motion
   node streamed live data, with observed ranges of about ±1 g and ±512 °/s while
   the controller was moved.
+- Motion is remapped from the Gear VR frame (`+X` right, `+Y` toward the
+  trigger, `+Z` up) into SDL's PlayStation frame (`+X` right, `+Y` up, `+Z`
+  toward the player) as `(x, z, -y)`. Yaw, roll, and pitch directions were
+  checked in Steam and all match.
+- The raw gyro bias (about `(4, -51, 14)` counts at rest) caused a steady drift
+  in Steam. Subtracting the fusion's stationary bias estimate removes it; the
+  estimator needs about two seconds of stillness after connecting to initialize.
 - Steam logged `Product: DualSense Wireless Controller` and the SDL mapping
   `54c/ce6 ... touchpad:b11,misc1:b12,crc:5657,platform:Linux`.
 - The synthetic feature reports (`0x05` calibration, `0x09` pairing info, `0x20`
@@ -217,9 +224,9 @@ The virtual identity is VID/PID `054c:0ce6`, name `Wireless Controller`, MAC
 `02:47:56:52:00:01`, `BUS_BLUETOOTH`. It is opt-in and mutually exclusive with
 the evdev gamepad.
 
-Remaining: confirm that Steam's controller UI actually offers gyro as an input
-source (the SDL mapping and motion node are present), and exercise a long
-session.
+Steam's desktop controller layout accepts the gyro binding, and yaw/roll/pitch
+all move the cursor in the expected direction. Remaining: a long-session run and
+packaging the service.
 
 ## Not yet validated
 
@@ -234,9 +241,8 @@ session.
 - Magnetometer scale and mounting rotation are still unverified. The `0300`
   calibration record is captured, but its semantic layout is unresolved.
 - Volume up/down bits were not exercised.
-- The virtual DualSense is enumerated by the kernel and Steam. Steam-side
-  gyro selection in the controller UI and long-session behavior remain to be
-  confirmed.
+- The virtual DualSense is enumerated by the kernel and Steam, and gyro works
+  in a desktop layout. A long-session run and the systemd service remain.
 - The systemd user unit is in `packaging/systemd/gearvr.service`, but has not
   been run on the Deck. It assumes the controller is already paired/trusted and
   restarts the process after a Bluetooth disconnect.

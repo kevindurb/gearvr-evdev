@@ -83,14 +83,28 @@ impl ReportBuilder {
         }
 
         if let Some(sample) = state.samples.last() {
+            // Gear VR frame: +X right, +Y toward the trigger, +Z out of the pad.
+            // SDL/PlayStation frame: +X right, +Y up, +Z toward the player.
+            // The fusion bias is estimated in the raw Gear VR frame.
+            let bias = state.gyro_bias_rads;
+            let gyro = [
+                sample.gyro_rads[0] - bias[0],
+                sample.gyro_rads[2] - bias[2],
+                -(sample.gyro_rads[1] - bias[1]),
+            ];
+            let accel = [
+                sample.accel_mps2[0],
+                sample.accel_mps2[2],
+                -sample.accel_mps2[1],
+            ];
+
             for axis in 0..3 {
-                let gyro = (sample.gyro_rads[axis].to_degrees() * GYRO_RAW_PER_DPS)
+                let gyro = (gyro[axis].to_degrees() * GYRO_RAW_PER_DPS)
                     .round()
                     .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
                 report[17 + axis * 2..19 + axis * 2].copy_from_slice(&gyro.to_le_bytes());
 
-                let accel = (sample.accel_mps2[axis] / gearvr_protocol::STANDARD_GRAVITY
-                    * ACC_RAW_PER_G)
+                let accel = (accel[axis] / gearvr_protocol::STANDARD_GRAVITY * ACC_RAW_PER_G)
                     .round()
                     .clamp(i16::MIN as f32, i16::MAX as f32) as i16;
                 report[23 + axis * 2..25 + axis * 2].copy_from_slice(&accel.to_le_bytes());
@@ -438,10 +452,52 @@ mod tests {
         let report = builder.build(&state_with_sample());
 
         let gyro_x = i16::from_le_bytes([report[17], report[18]]);
-        let accel_z = i16::from_le_bytes([report[27], report[28]]);
+        let accel_y = i16::from_le_bytes([report[25], report[26]]);
         // 1 rad/s = 57.2958 deg/s, 16 counts per deg/s.
         assert_eq!(gyro_x, 917);
-        assert_eq!(accel_z, 8192);
+        // Gear VR +Z is up, which becomes SDL +Y.
+        assert_eq!(accel_y, 8192);
+        assert_eq!(i16::from_le_bytes([report[27], report[28]]), 0);
+    }
+
+    #[test]
+    fn gear_axes_map_to_the_sdl_playstation_frame() {
+        let mut builder = ReportBuilder::new();
+        let state = ControllerState {
+            samples: vec![ImuSampleState {
+                // Roll left (+Y in the Gear VR frame) and gravity toward +Y.
+                accel_mps2: [0.0, gearvr_protocol::STANDARD_GRAVITY, 0.0],
+                gyro_rads: [0.0, 1.0, 0.0],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let report = builder.build(&state);
+
+        // SDL +Z points toward the player, so Gear +Y becomes -Z.
+        assert_eq!(i16::from_le_bytes([report[21], report[22]]), -917);
+        assert_eq!(i16::from_le_bytes([report[27], report[28]]), -8192);
+        assert_eq!(i16::from_le_bytes([report[17], report[18]]), 0);
+    }
+
+    #[test]
+    fn estimated_gyro_bias_is_removed() {
+        let mut builder = ReportBuilder::new();
+        let state = ControllerState {
+            samples: vec![ImuSampleState {
+                gyro_rads: [0.0, 1.0, 0.0],
+                accel_mps2: [0.0, 0.0, gearvr_protocol::STANDARD_GRAVITY],
+                ..Default::default()
+            }],
+            // The estimator learned the same rate while the controller was still.
+            gyro_bias_rads: [0.0, 1.0, 0.0],
+            ..Default::default()
+        };
+        let report = builder.build(&state);
+
+        assert_eq!(i16::from_le_bytes([report[17], report[18]]), 0);
+        assert_eq!(i16::from_le_bytes([report[19], report[20]]), 0);
+        assert_eq!(i16::from_le_bytes([report[21], report[22]]), 0);
     }
 
     #[test]

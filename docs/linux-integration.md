@@ -119,6 +119,12 @@ Rollback is just omitting `--backend dualsense`; the evdev gamepad path is
 unchanged and the uhid device is destroyed when the process exits. Do not run
 both backends at once, or Steam will see two controllers.
 
+Motion is converted from the Gear VR frame (`+X` right, `+Y` toward the trigger,
+`+Z` up) to SDL's PlayStation frame (`+X` right, `+Y` up, `+Z` toward the
+player), and the fusion's stationary gyro-bias estimate is subtracted. Without
+that subtraction the virtual pad drifts steadily in Steam; hold the controller
+still for about two seconds after connecting so the estimator can initialize.
+
 ## Mechanism 3 — direct API / OpenXR integration
 
 Instead of presenting a generic device, the driver could act as an
