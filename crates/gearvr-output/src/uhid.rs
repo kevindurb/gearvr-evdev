@@ -114,19 +114,24 @@ fn read_loop(
     features: Arc<Features>,
     stop: Arc<AtomicBool>,
 ) {
+    tracing::info!("uhid reader thread started");
     let mut buffer = [0u8; EVENT_SIZE];
     while !stop.load(Ordering::SeqCst) {
         match file.read(&mut buffer) {
             Ok(0) => break,
             Ok(size) => {
-                if handle_event(&buffer[..size], &features, &writer).is_err() {
-                    break;
+                if let Err(error) = handle_event(&buffer[..size], &features, &writer) {
+                    tracing::warn!(%error, "uhid event handling failed; continuing");
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(_) => break,
+            Err(error) => {
+                tracing::warn!(%error, "uhid read failed; retrying");
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
         }
     }
+    tracing::info!("uhid reader thread stopped");
 }
 
 fn handle_event(event: &[u8], features: &Features, writer: &Mutex<File>) -> io::Result<()> {
@@ -141,6 +146,7 @@ fn handle_event(event: &[u8], features: &Features, writer: &Mutex<File>) -> io::
         UHID_GET_REPORT if event.len() >= 10 => {
             let id = u32::from_le_bytes(event[4..8].try_into().expect("4 bytes"));
             let report_number = event[8];
+            tracing::info!(report = report_number, "uhid feature report");
             let reply = match report_number {
                 FEATURE_CALIBRATION => get_report_reply(id, Some(&features.calibration)),
                 FEATURE_PAIRING_INFO => get_report_reply(id, Some(&features.pairing)),
