@@ -296,6 +296,8 @@ pub struct DualSenseBackend {
     sink: Option<Box<dyn ReportSink>>,
     builder: ReportBuilder,
     state: ControllerState,
+    /// False until the first sensor packet; a startup report must not claim 0%.
+    battery_known: bool,
 }
 
 impl DualSenseBackend {
@@ -304,6 +306,7 @@ impl DualSenseBackend {
             sink: Some(sink),
             builder: ReportBuilder::new(),
             state: ControllerState::default(),
+            battery_known: false,
         }
     }
 
@@ -313,6 +316,7 @@ impl DualSenseBackend {
             sink: None,
             builder: ReportBuilder::new(),
             state: ControllerState::default(),
+            battery_known: false,
         }
     }
 }
@@ -320,15 +324,18 @@ impl DualSenseBackend {
 impl Backend for DualSenseBackend {
     fn on_connect(&mut self, state: &ControllerState) -> Result<(), BackendError> {
         self.state = state.clone();
+        self.battery_known = state.battery_percent != 0;
+        let report = self.build_report();
         if let Some(sink) = self.sink.as_mut() {
             sink.pump()?;
-            sink.send(&self.builder.neutral())?;
+            sink.send(&report)?;
         }
         Ok(())
     }
 
     fn on_state(&mut self, state: &ControllerState) -> Result<(), BackendError> {
         self.state = state.clone();
+        self.battery_known = true;
         if let Some(sink) = self.sink.as_mut() {
             // Also drain here: `synth` drives on_state without a tick loop, and
             // the kernel may request a feature report at any time.
@@ -337,10 +344,21 @@ impl Backend for DualSenseBackend {
         Ok(())
     }
 
-    fn on_disconnect(&mut self, _state: &ControllerState) -> Result<(), BackendError> {
+    fn on_disconnect(&mut self, state: &ControllerState) -> Result<(), BackendError> {
+        // Release every input and zero the motion, but keep the last known
+        // battery so a disconnect does not look like a dead battery.
+        let mut neutral = state.clone();
+        neutral.buttons = 0;
+        neutral.touchpad = Default::default();
+        neutral.samples.clear();
+        neutral.orientation = None;
+        if !self.battery_known {
+            neutral.battery_percent = 100;
+        }
+        let report = self.builder.build(&neutral);
         if let Some(sink) = self.sink.as_mut() {
             sink.pump()?;
-            sink.send(&self.builder.neutral())?;
+            sink.send(&report)?;
         }
         Ok(())
     }
@@ -350,12 +368,26 @@ impl Backend for DualSenseBackend {
     }
 
     fn on_tick(&mut self, _state: &ControllerState) -> Result<(), BackendError> {
+        let report = self.build_report();
         let Some(sink) = self.sink.as_mut() else {
             return Ok(());
         };
         sink.pump()?;
-        let report = self.builder.build(&self.state);
         sink.send(&report)
+    }
+}
+
+impl DualSenseBackend {
+    fn build_report(&mut self) -> [u8; INPUT_REPORT_LEN] {
+        if self.battery_known {
+            self.builder.build(&self.state)
+        } else {
+            // Before the first sensor packet, report full rather than 0%:
+            // the kernel turns 0 into a 5% "battery low" notification.
+            let mut state = self.state.clone();
+            state.battery_percent = 100;
+            self.builder.build(&state)
+        }
     }
 }
 
@@ -648,6 +680,32 @@ mod tests {
         assert_eq!(neutral[7], 0, "R2 released");
         assert_eq!(neutral[10] & 0x08, 0, "R2 bit cleared");
         assert_eq!(neutral[11] & 0x03, 0, "PS and touchpad cleared");
+    }
+
+    #[test]
+    fn startup_report_does_not_claim_a_low_battery() {
+        let (mut backend, reports, _pumps) = fake_backend();
+        backend.on_connect(&ControllerState::default()).unwrap();
+        let report = reports.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(report[54], 10, "100% until the first real packet");
+    }
+
+    #[test]
+    fn real_battery_replaces_the_startup_sentinel() {
+        let (mut backend, reports, _pumps) = fake_backend();
+        backend.on_connect(&ControllerState::default()).unwrap();
+        let state = ControllerState {
+            battery_percent: 67,
+            ..Default::default()
+        };
+        backend.on_state(&state).unwrap();
+        backend.on_tick(&state).unwrap();
+        let report = reports.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(report[54], 6, "67% is 6 in ten-percent units");
+
+        backend.on_disconnect(&state).unwrap();
+        let report = reports.lock().unwrap().last().cloned().unwrap();
+        assert_eq!(report[54], 6, "disconnect keeps the last known battery");
     }
 
     #[test]

@@ -5,6 +5,7 @@ pub mod evdev_gamepad;
 pub mod json;
 #[cfg(feature = "dualsense")]
 pub mod uhid;
+pub mod volume;
 
 pub use evdev_gamepad::{ButtonMap, EvdevBackend, EvdevConfig, MotionNodeConfig};
 pub use json::{JsonBackend, JsonConfig, UdpBackend, UdpConfig};

@@ -16,6 +16,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use gearvr_ble::bluez::{self, BlueZOptions, BlueZTransport, DeviceSelector};
 use gearvr_core::{Backend, ControllerState, ImuSampleState, LinkState, Orientation};
 use gearvr_fusion::{fit, FitOptions, Fusion, MagCalibration};
+use gearvr_output::volume::{VolumeKeys, WithVolumeKeys};
 #[cfg(feature = "dualsense")]
 use gearvr_output::{dualsense::DualSenseBackend, uhid::UhidSink};
 use gearvr_output::{
@@ -113,6 +114,10 @@ struct OutputArgs {
     /// Fuse the calibrated magnetometer for yaw correction.
     #[arg(long)]
     marg: bool,
+
+    /// Do not create the companion keyboard for the volume rocker.
+    #[arg(long)]
+    no_volume_keys: bool,
 }
 
 impl Default for OutputArgs {
@@ -125,6 +130,7 @@ impl Default for OutputArgs {
             udp_target: "127.0.0.1:9000".parse().expect("static address"),
             mag_calibration: None,
             marg: false,
+            no_volume_keys: false,
         }
     }
 }
@@ -373,7 +379,7 @@ fn build_fusion(args: &OutputArgs) -> Result<Fusion> {
 }
 
 fn build_backend(args: &OutputArgs) -> Result<Box<dyn Backend>> {
-    Ok(match args.backend {
+    let backend: Box<dyn Backend> = match args.backend {
         BackendKind::Evdev => {
             let button_map = if args.volume_buttons {
                 ButtonMap::default().with_volume()
@@ -399,7 +405,26 @@ fn build_backend(args: &OutputArgs) -> Result<Box<dyn Backend>> {
             let sink = UhidSink::open(mac).context("create virtual DualSense at /dev/uhid")?;
             Box::new(DualSenseBackend::new(Box::new(sink)))
         }
-    })
+    };
+
+    // The gamepad/DualSense reports have no volume keys. Add a companion
+    // keyboard unless the caller opts out, or the evdev gamepad already maps
+    // the rocker to spare gamepad buttons.
+    let wants_volume = !args.no_volume_keys
+        && !(args.backend == BackendKind::Evdev && args.volume_buttons)
+        && !matches!(
+            args.backend,
+            BackendKind::Json | BackendKind::Udp | BackendKind::Null
+        );
+    if wants_volume {
+        match VolumeKeys::new() {
+            Ok(volume) => return Ok(Box::new(WithVolumeKeys::new(backend, volume))),
+            Err(error) => {
+                tracing::warn!(%error, "volume keyboard unavailable; the rocker has no mapping");
+            }
+        }
+    }
+    Ok(backend)
 }
 
 #[derive(Debug, Default)]

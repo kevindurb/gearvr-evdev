@@ -51,7 +51,7 @@ Generic gamepad, `BUS_USB`, VID/PID `1209:0001` (pid.codes test IDs):
 | Home | `BTN_MODE` |
 | Touchpad click | `BTN_THUMBL` |
 | Touchpad position | `ABS_X`, `ABS_Y`, range 0–320 |
-| Volume up/down | off by default; `--volume-buttons` maps them to `BTN_TRIGGER_HAPPY1/2` |
+| Volume up/down | companion keyboard `1209:0003` with `KEY_VOLUMEUP/DOWN`; `--volume-buttons` maps them to `BTN_TRIGGER_HAPPY1/2` instead |
 
 The optional motion node is `1209:0002` with `INPUT_PROP_ACCELEROMETER`,
 `ABS_X/Y/Z` for raw accelerometer counts and `ABS_RX/RY/RZ` for raw gyro counts.
@@ -219,6 +219,14 @@ gearvr-cli run 'Gear VR' --backend dualsense
   Bluetooth report descriptor.
 - Selecting `--backend evdev` creates the two `1209` nodes and no `054c` uhid
   device, so rollback is just omitting the flag.
+- The first DualSense report is sent before the first sensor packet. It reports
+  100% battery rather than 0%, because the kernel maps 0 to a 5% "battery low"
+  notification; the real value follows with the first packet and is kept on
+  disconnect.
+- The +/− rocker is a companion uinput keyboard (`1209:0003`) with
+  `KEY_VOLUMEUP`/`KEY_VOLUMEDOWN`, so it changes system volume without a Steam
+  layout binding. `--no-volume-keys` disables it; for the evdev backend,
+  `--volume-buttons` maps the rocker to spare gamepad buttons instead.
 
 The virtual identity is VID/PID `054c:0ce6`, name `Wireless Controller`, MAC
 `02:47:56:52:00:01`, `BUS_BLUETOOTH`. It is opt-in and mutually exclusive with
@@ -287,7 +295,8 @@ now answers `GET_REPORT` for the device's lifetime; Steam logs
 - The saved magnetometer profile is unit-specific and came from a marginal
   capture (residual 0.153). The `0300` calibration record is captured, but its
   semantic layout is unresolved.
-- Volume up/down bits were not exercised.
+- Delivery of the companion volume keys to the desktop has not been confirmed
+yet.
 - The virtual DualSense is enumerated by the kernel and Steam, and gyro works
   in a desktop layout. A long-session run and the systemd service remain.
 - The systemd service is validated, including the DualSense drop-in. A reboot
