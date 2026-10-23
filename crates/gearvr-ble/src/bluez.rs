@@ -67,6 +67,19 @@ fn normalize_address(address: &str) -> String {
     address.replace('-', ":").to_ascii_uppercase()
 }
 
+/// Aborts the D-Bus driver task when dropped.
+///
+/// Every failed connection attempt must drop this, otherwise its D-Bus socket
+/// stays open and a long-running reconnect loop eventually exhausts the fd
+/// limit.
+struct DbusTask(JoinHandle<()>);
+
+impl Drop for DbusTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlueZOptions {
     pub scan_timeout: Duration,
@@ -95,7 +108,7 @@ pub struct BlueZTransport {
     command: CharacteristicId,
     write_type: WriteType,
     events: Pin<Box<dyn Stream<Item = BluetoothEvent> + Send>>,
-    dbus_task: JoinHandle<()>,
+    dbus_task: DbusTask,
 }
 
 impl std::fmt::Debug for BlueZTransport {
@@ -119,11 +132,11 @@ impl BlueZTransport {
         let (dbus, session) = BluetoothSession::new()
             .await
             .map_err(|error| TransportError::Other(format!("D-Bus/BlueZ unavailable: {error}")))?;
-        let dbus_task = tokio::spawn(async move {
+        let dbus_task = DbusTask(tokio::spawn(async move {
             if let Err(error) = dbus.await {
                 tracing::error!(%error, "D-Bus connection lost");
             }
-        });
+        }));
 
         let device = find_device(&session, &selector).await?;
         let device = match device {
@@ -282,7 +295,7 @@ impl BlueZTransport {
     pub async fn disconnect(self) -> Result<(), TransportError> {
         let _ = self.session.stop_notify(&self.data).await;
         let _ = self.session.disconnect(&self.device).await;
-        self.dbus_task.abort();
+        self.dbus_task.0.abort();
         Ok(())
     }
 }
@@ -291,11 +304,11 @@ pub async fn list_devices() -> Result<Vec<DeviceInfo>, TransportError> {
     let (dbus, session) = BluetoothSession::new()
         .await
         .map_err(|error| TransportError::Other(format!("D-Bus/BlueZ unavailable: {error}")))?;
-    tokio::spawn(async move {
+    let _dbus_task = DbusTask(tokio::spawn(async move {
         if let Err(error) = dbus.await {
             tracing::error!(%error, "D-Bus connection lost");
         }
-    });
+    }));
     session
         .get_devices()
         .await
@@ -308,11 +321,11 @@ pub async fn scan_for_devices(timeout: Duration) -> Result<Vec<DeviceInfo>, Tran
     let (dbus, session) = BluetoothSession::new()
         .await
         .map_err(|error| TransportError::Other(format!("D-Bus/BlueZ unavailable: {error}")))?;
-    let task = tokio::spawn(async move {
+    let _task = DbusTask(tokio::spawn(async move {
         if let Err(error) = dbus.await {
             tracing::error!(%error, "D-Bus connection lost");
         }
-    });
+    }));
     let filter = DiscoveryFilter {
         service_uuids: vec![Uuid::from_u128(VENDOR_SERVICE_UUID)],
         transport: Some(Transport::Le),
@@ -332,7 +345,7 @@ pub async fn scan_for_devices(timeout: Duration) -> Result<Vec<DeviceInfo>, Tran
             .map_err(|error| TransportError::Other(error.to_string()))
     }
     .await;
-    task.abort();
+    // `_task` aborts its D-Bus driver when it drops here.
     result
 }
 
@@ -340,11 +353,11 @@ pub async fn list_adapters() -> Result<Vec<bluez_async::AdapterInfo>, TransportE
     let (dbus, session) = BluetoothSession::new()
         .await
         .map_err(|error| TransportError::Other(format!("D-Bus/BlueZ unavailable: {error}")))?;
-    tokio::spawn(async move {
+    let _dbus_task = DbusTask(tokio::spawn(async move {
         if let Err(error) = dbus.await {
             tracing::error!(%error, "D-Bus connection lost");
         }
-    });
+    }));
     session
         .get_adapters()
         .await
