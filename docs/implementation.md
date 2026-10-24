@@ -297,9 +297,10 @@ now answers `GET_REPORT` for the device's lifetime; Steam logs
 - The tarball binary ran `info` on Debian 12 with only `libdbus-1-3` installed.
   `doctor` correctly reported missing `/dev/uinput` and `/dev/uhid` access, a
   missing udev rule, and an unavailable D-Bus/BlueZ socket in the container.
-- The GitHub Actions checks and release workflows are implemented and pass
-  `actionlint`. The release workflow has not yet run on GitHub, so no assets
-  have been attached to a release.
+- The GitHub Actions checks and release workflows pass `actionlint`. The first
+  release dry run exposed a missing `tarball` dependency on the RPM job; the fix
+  was merged before the release. The `v0.1.0` release then published the
+  tarball, the RPM, and `SHA256SUMS`, and the downloaded checksums verify.
 
 ## Not yet validated
 
@@ -320,6 +321,5 @@ yet.
   in a desktop layout. A long-session run remains.
 - The systemd service is validated, including the DualSense drop-in. A reboot
   (as opposed to enablement) was not performed.
-- The release workflow has not run on GitHub, and the release RPM and tarball
-  have not been installed on a Deck or bootc host. The hardware validation task
-  for the packaged artifacts remains unchecked.
+- The release RPM and tarball have not been installed on a Deck or bootc host.
+  The hardware validation task for the packaged artifacts remains unchecked.

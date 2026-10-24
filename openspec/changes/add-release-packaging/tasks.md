@@ -24,11 +24,11 @@
 
 ## 4. GitHub Actions and release publishing
 
-- [ ] 4.1 Add `.github/workflows/ci.yml` for pushes to `main` and pull requests: formatting, workspace tests, clippy, and a portable-build job that runs the release feature set and portability checks. Verify with `actionlint` (or an equivalent workflow check) and a branch run.
+- [x] 4.1 Add `.github/workflows/ci.yml` for pushes to `main` and pull requests: formatting, workspace tests, clippy, and a portable-build job that runs the release feature set and portability checks. Verify with `actionlint` (or an equivalent workflow check) and a branch run.
 - [x] 4.2 Add `scripts/check-release-version.sh` that compares a release tag with the workspace version and fails with both values on a mismatch. Verify it accepts `v0.1.0` and rejects `v0.2.0` against the current tree.
-- [ ] 4.3 Add `.github/workflows/release.yml` triggered by `release: types: [published]`, with read-only default permissions, `contents: write` only in the publish job, a version-check job, the tarball and RPM jobs, `SHA256SUMS` generation, and `gh release upload` only after every build succeeds. Add a `workflow_dispatch` dry-run path that uploads workflow artifacts without publishing. Verify with `actionlint` and a dry run.
+- [x] 4.3 Add `.github/workflows/release.yml` triggered by `release: types: [published]`, with read-only default permissions, `contents: write` only in the publish job, a version-check job, the tarball and RPM jobs, `SHA256SUMS` generation, and `gh release upload` only after every build succeeds. Add a `workflow_dispatch` dry-run path that uploads workflow artifacts without publishing. Verify with `actionlint` and a dry run.
 - [x] 4.4 Document the release procedure in `packaging/README.md`: bump the workspace version, tag `vMAJOR.MINOR.PATCH`, publish the release, confirm both assets and the checksum file, and recover from a failed upload. Verify the steps match the workflow triggers and artifact names.
-- [ ] 4.5 Exercise the release path with a test release once the version is final: verify both assets and `SHA256SUMS` are attached, and verify a deliberately mismatched tag fails before uploading. Record the observed result.
+- [x] 4.5 Exercise the release path with a test release once the version is final: verify both assets and `SHA256SUMS` are attached, and verify a deliberately mismatched tag fails before uploading. Record the observed result.
 
 ## 5. Integration verification and hardware validation
 
