@@ -23,7 +23,10 @@ uuid = { version = "1", optional = true }
 
 [features]
 default = []
-bluez = ["dep:bluez-async", "dep:libdbus-sys", "dep:futures", "dep:uuid"]
+# The live BlueZ transport. It links the system libdbus unless the
+# `vendored-dbus` feature is also enabled.
+bluez = ["dep:bluez-async", "dep:futures", "dep:uuid"]
+vendored-dbus = ["dep:libdbus-sys"]
 
 [dev-dependencies]
 gearvr-protocol = { path = "../gearvr-protocol", features = ["testing"] }

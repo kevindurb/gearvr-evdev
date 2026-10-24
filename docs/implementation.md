@@ -282,6 +282,25 @@ PS5 controller without the touchpad/CRC mapping. A dedicated uhid reader thread
 now answers `GET_REPORT` for the device's lifetime; Steam logs
 `DualSense Wireless Controller` with `touchpad:b11` and `crc:5657` reliably.
 
+## Release packaging (2026-10-23)
+
+- The release build uses an Ubuntu 22.04 container with the system D-Bus client
+  library. The built binary imports at most `GLIBC_2.34` and has
+  `libdbus-1.so.3` in `NEEDED`; it does not bundle a private libdbus.
+- `scripts/build-tarball.sh` produced
+  `gearvr-evdev-0.1.0-x86_64-linux-gnu.tar.gz` with the binary, `install.sh`,
+  the user unit, both udev rules, `README.md`, `INSTALL.md`, and `LICENSE`.
+- The RPM built in Fedora 44 from that tarball. Installing it in a clean
+  container placed `/usr/bin/gearvr-cli`, the user unit, and both rules;
+  `systemd-analyze verify` and `udevadm verify` passed; the service stayed
+  disabled; removal left user captures and calibration files untouched.
+- The tarball binary ran `info` on Debian 12 with only `libdbus-1-3` installed.
+  `doctor` correctly reported missing `/dev/uinput` and `/dev/uhid` access, a
+  missing udev rule, and an unavailable D-Bus/BlueZ socket in the container.
+- The GitHub Actions checks and release workflows are implemented and pass
+  `actionlint`. The release workflow has not yet run on GitHub, so no assets
+  have been attached to a release.
+
 ## Not yet validated
 
 - Pairing-agent behavior, bonding persistence, reconnect after sleep, and
@@ -298,6 +317,9 @@ now answers `GET_REPORT` for the device's lifetime; Steam logs
 - Delivery of the companion volume keys to the desktop has not been confirmed
 yet.
 - The virtual DualSense is enumerated by the kernel and Steam, and gyro works
-  in a desktop layout. A long-session run and the systemd service remain.
+  in a desktop layout. A long-session run remains.
 - The systemd service is validated, including the DualSense drop-in. A reboot
   (as opposed to enablement) was not performed.
+- The release workflow has not run on GitHub, and the release RPM and tarball
+  have not been installed on a Deck or bootc host. The hardware validation task
+  for the packaged artifacts remains unchecked.

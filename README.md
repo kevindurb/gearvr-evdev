@@ -29,6 +29,29 @@ what the Deck validation actually showed, and
 [`packaging/README.md`](packaging/README.md) for udev, pairing, and the systemd
 user unit.
 
+## Install from a release
+
+Published releases provide an x86_64 tarball and an RPM. Both target glibc 2.35
+or newer and link the system D-Bus client library; the packaged binary includes
+the optional DualSense backend.
+
+```sh
+# Fedora / bootc
+sudo dnf install ./gearvr-evdev-0.1.0-1.x86_64.rpm
+systemctl --user enable --now gearvr.service
+
+# Any supported distribution, from the tarball
+tar -xzf gearvr-evdev-0.1.0-x86_64-linux-gnu.tar.gz
+cd gearvr-evdev-0.1.0
+./install.sh --user
+sudo ./install.sh --udev
+```
+
+The RPM does not enable the service automatically. See
+[`packaging/README.md`](packaging/README.md) for the bootc Containerfile
+snippet, multi-user caveats, permissions, pairing, and removal. In a release
+archive that guide is included as `INSTALL.md`.
+
 ## Quick start
 
 ```sh
@@ -48,6 +71,28 @@ an input device; `probe` reads the constant settings/calibration records;
 `replay` decodes a capture offline. `run` expects a controller already paired in
 BlueZ (or `--pair`, which needs a working pairing agent). The JSON backend writes
 one object per packet to stdout; logs go to stderr.
+
+### Build modes
+
+Local source builds use the vendored D-Bus client library, so they do not need
+D-Bus development headers:
+
+```sh
+cargo build --release -p gearvr-cli
+cargo build --release -p gearvr-cli --features dualsense
+```
+
+The release artifacts link the distribution's D-Bus client instead. That build
+needs `pkg-config` and `libdbus-1-dev` (`dbus-devel` on Fedora):
+
+```sh
+cargo build --release --locked -p gearvr-cli \
+    --no-default-features --features bluez,dualsense
+```
+
+`scripts/build-tarball.sh` runs the release build and checks the glibc and
+`libdbus` baseline. The packaging guide has the container command and the full
+release procedure.
 
 Bringing up the physical controller for the first time? Follow
 [`docs/bringup.md`](docs/bringup.md).

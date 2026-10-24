@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Format, test, and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check shell scripts
+        run: |
+          sh -n packaging/install.sh
+          bash -n scripts/build-tarball.sh
+          bash -n scripts/build-rpm.sh
+          bash -n scripts/check-release-version.sh
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Test
+        run: cargo test --workspace --all-features --locked
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  portable-build:
+    name: Portable release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: ubuntu:22.04
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git pkg-config libdbus-1-dev \
+            build-essential binutils
+
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.85.0
+
+      - name: Build and verify tarball
+        run: ./scripts/build-tarball.sh

@@ -7,4 +7,8 @@
 # renaming the nodes.
 SUBSYSTEM=="input", KERNEL=="event[0-9]*", ATTRS{id/vendor}=="1209", ATTRS{id/product}=="0001", TAG+="uaccess"
 SUBSYSTEM=="input", KERNEL=="event[0-9]*", ATTRS{id/vendor}=="1209", ATTRS{id/product}=="0002", TAG+="uaccess"
+# The +/− rocker is a companion keyboard (1209:0003). It is usually tagged by
+# the input/keyboard rules already, but keep an explicit rule so the volume
+# keys work on hosts with a minimal udev configuration.
+SUBSYSTEM=="input", KERNEL=="event[0-9]*", ATTRS{id/vendor}=="1209", ATTRS{id/product}=="0003", TAG+="uaccess"
 SUBSYSTEM=="input", KERNEL=="js[0-9]*", ATTRS{id/vendor}=="1209", ATTRS{id/product}=="0001", TAG+="uaccess"
