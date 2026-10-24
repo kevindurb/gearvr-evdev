@@ -75,7 +75,7 @@ jobs:
 
   rpm:
     name: Build release RPM
-    needs: verify
+    needs: [verify, tarball]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container: fedora:44
