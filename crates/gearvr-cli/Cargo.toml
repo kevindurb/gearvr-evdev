@@ -28,6 +28,10 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [features]
-default = ["bluez"]
+default = ["bluez", "vendored-dbus"]
 bluez = ["gearvr-ble/bluez"]
+# Local source builds keep working without dbus development headers. Release
+# builds use --no-default-features --features bluez,dualsense to link the
+# distribution's libdbus instead.
+vendored-dbus = ["gearvr-ble/vendored-dbus"]
 dualsense = ["gearvr-output/dualsense"]

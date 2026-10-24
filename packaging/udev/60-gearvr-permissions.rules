@@ -1,0 +1,14 @@
+# Give the logged-in user access to the device nodes the driver opens.
+#
+# /dev/uinput and /dev/uhid are normally root-only. The driver creates its
+# virtual gamepad and, optionally, a virtual DualSense through these nodes.
+#
+# SECURITY NOTE: TAG+="uaccess" on uhid lets any logged-in user create a virtual
+# HID device. That is acceptable for a single-user gaming image. On a multi-user
+# host, replace this file with group-based permissions and add only the driver
+# user to the group; see packaging/README.md.
+#
+# The 60- prefix sorts before 71-seat.rules and 73-seat-late.rules, which consume
+# the uaccess tag for the active seat.
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
+KERNEL=="uhid", SUBSYSTEM=="misc", TAG+="uaccess"
